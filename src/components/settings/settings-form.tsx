@@ -117,7 +117,7 @@ export function SettingsForm() {
 
       <SettingsSection
         title="Model bağlantısı"
-        description="Cloudflare Workers AI bilgilerin bu cihazda saklanır."
+        description="Cloudflare Workers AI bilgilerin bu cihazda saklanır. Token için Account → Workers AI → Read izni gerekir."
         icon={<Sparkles className="size-4 text-muted" strokeWidth={1.7} />}
       >
         <Field id="account-id" label="Account ID">

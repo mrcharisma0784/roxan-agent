@@ -79,7 +79,16 @@ function extractDelta(parsed: unknown): string { if (!parsed || typeof parsed !=
   if (typeof record.output_text === "string") return record.output_text;
   if (typeof record.answer === "string") return record.answer; if (typeof record.caption === "string") return record.caption; const result = record.result; if (typeof result === "string") return result; if (result && typeof result === "object") { const resultRecord = result as Record<string, unknown>; if (typeof resultRecord.response === "string") return resultRecord.response; if (typeof resultRecord.answer === "string") return resultRecord.answer; if (typeof resultRecord.caption === "string") return resultRecord.caption; } return ""; }
 function extractError(parsed: unknown, fallback: string) { if (!parsed || typeof parsed !== "object") return fallback; const record = parsed as Record<string, unknown>; if (typeof record.message === "string" && record.message) return record.message; const errors = record.errors; if (Array.isArray(errors) && errors[0] && typeof errors[0] === "object" && typeof (errors[0] as Record<string, unknown>).message === "string") return String((errors[0] as Record<string, unknown>).message); return fallback; }
-function describeHttpError(status: number, json: unknown) { const extracted = extractError(json, ""); return extracted || ({ 401: "API token geçersiz veya yetkisiz (401).", 403: "Hesabın bu modele erişim izni yok (403). Cloudflare AI model lisansını etkinleştirmen gerekebilir.", 404: "Account ID veya model bulunamadı (404).", 429: "Kota aşıldı (429)." }[status] || `İstek başarısız (${status}).`); }
+function describeHttpError(status: number, json: unknown) {
+  const record = json && typeof json === "object" ? json as Record<string, unknown> : null;
+  const errors = Array.isArray(record?.errors) ? record.errors : [];
+  const errorCode = errors[0] && typeof errors[0] === "object" ? Number((errors[0] as Record<string, unknown>).code) : NaN;
+  if (errorCode === 10000 || /authentication error/i.test(extractError(json, ""))) {
+    return "Cloudflare Authentication error (10000). API Token’da Account → Workers AI → Read izni olmalı; Global API Key değil API Token kullan, Account ID’yi de aynı Cloudflare hesabından kopyala.";
+  }
+  const extracted = extractError(json, "");
+  return extracted || ({ 401: "API token geçersiz veya yetkisiz (401).", 403: "Hesabın bu modele erişim izni yok (403). Cloudflare AI model lisansını etkinleştirmen gerekebilir.", 404: "Account ID veya model bulunamadı (404).", 429: "Kota aşıldı (429)." }[status] || `İstek başarısız (${status}).`);
+}
 async function readJsonSafe(response: Response) { try { return await response.json(); } catch { return null; } }
 function messageText(content: ChatPayload["messages"][number]["content"]) { return typeof content === "string" ? content : content.filter((part) => part.type === "text").map((part) => part.text || "").join(" "); }
 function latestUserMessage(messages: ChatPayload["messages"]) { const message = [...messages].reverse().find((item) => item.role === "user"); return message ? messageText(message.content) : ""; }
