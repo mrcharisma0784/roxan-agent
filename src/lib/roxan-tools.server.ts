@@ -1,5 +1,6 @@
 import { exec } from "node:child_process";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -178,8 +179,8 @@ async function getWorkdir(workspaceMode = false, workspaceId = "default") {
   const cacheKey = `${workspaceMode}:${safeId}`;
   const cached = resolvedWorkdirs.get(cacheKey);
   if (cached) return cached;
-  const workspaceRoot = process.env.ROXAN_WORKSPACES_ROOT || "/root/roxan-agent/workspaces";
-  const candidates = (workspaceMode ? [path.join(workspaceRoot, safeId), process.env.ROXAN_WORKDIR, path.join(process.cwd(), "workspaces", safeId)] : [process.env.HOME, "/tmp"]).filter(
+  const workspaceRoot = process.env.ROXAN_WORKSPACES_ROOT || path.join(os.tmpdir(), "roxan-workspaces");
+  const candidates = (workspaceMode ? [path.join(workspaceRoot, safeId), process.env.ROXAN_WORKDIR, path.join(os.tmpdir(), "roxan-workspaces", safeId)] : [process.env.HOME, os.tmpdir()]).filter(
     (value): value is string => Boolean(value),
   );
 

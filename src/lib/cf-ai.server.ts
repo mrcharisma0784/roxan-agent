@@ -99,13 +99,16 @@ function decodeAttachedText(text: string) { return text.replace(/data:([^;,]+);b
 
 async function callChat(payload: ChatPayload, messages: CfMessage[], tools: typeof TOOL_SCHEMAS) {
   const source = messages.map((message) => ({ ...message, content: decodeAttachedText(message.content) }));
-  const body: Record<string, unknown> = { model: payload.settings.model, stream: false, max_tokens: 8192, ...(tools.length > 0 && payload.workspaceMode ? { tool_choice: "auto" } : {}), messages: [{ role: "system", content: buildSystemPrompt(payload.settings.personalization) }, ...source].slice(-25) };
+  const body: Record<string, unknown> = { model: payload.settings.model, stream: tools.length === 0, max_tokens: 8192, ...(tools.length > 0 && payload.workspaceMode ? { tool_choice: "auto" } : {}), messages: [{ role: "system", content: buildSystemPrompt(payload.settings.personalization) }, ...source].slice(-25) };
   if (tools.length > 0) body.tools = tools;
   if (payload.reasoningEnabled) body.reasoning_effort = "medium";
   const request = (accountId: string, apiToken: string, requestBody = body) => fetch(chatUrl(accountId), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` }, body: JSON.stringify(requestBody) });
   const transient = (response: Response) => response.status >= 500 || response.status === 408 || response.status === 429;
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   let primary = await request(payload.settings.accountId, payload.settings.apiToken);
+  if (!primary.ok && tools.length === 0 && (primary.status === 400 || primary.status === 422)) {
+    primary = await request(payload.settings.accountId, payload.settings.apiToken, { ...body, stream: false });
+  }
   if (!primary.ok && transient(primary)) { await wait(350); primary = await request(payload.settings.accountId, payload.settings.apiToken); }
   if (!primary.ok && primary.status >= 500 && tools.length > 0) { const safeBody = { ...body }; delete safeBody.tool_choice; primary = await request(payload.settings.accountId, payload.settings.apiToken, safeBody); }
   if (primary.ok || !payload.settings.backupAccountId || !payload.settings.backupApiToken) return primary;
@@ -153,6 +156,32 @@ ${instructions.content}` }, ...conversation]; }
     for (let turn = 0; turn < 12; turn++) {
       const tools = payload.workspaceMode && !isCasualMessage(latestUserMessage(payload.messages)) ? (turn === 0 ? phaseTool("reasoning") : turn === 1 ? phaseTool("planning") : allTools) : allTools;
       const upstream = await callChat(payload, conversation, tools);
+      const contentType = upstream.headers.get("content-type") || "";
+      if (upstream.ok && contentType.includes("text/event-stream") && !tools.length && upstream.body) {
+        const reader = upstream.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamed = false;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const data = line.trim().replace(/^data:\s*/, "");
+            if (!data || data === "[DONE]") continue;
+            try {
+              const delta = extractDelta(JSON.parse(data));
+              if (delta) { streamed = true; send({ type: "delta", text: delta }); }
+            } catch { /* ignore keep-alive/non-JSON SSE frames */ }
+          }
+        }
+        if (streamed) send({ type: "done" });
+        else send({ type: "error", message: "Model streaming yanıtı boş döndürdü." });
+        controller.close();
+        return;
+      }
       const json = await readJsonSafe(upstream);
       if (!upstream.ok) { send({ type: "error", message: describeHttpError(upstream.status, json) }); controller.close(); return; }
       const msg = json && typeof json === "object" ? (json as { choices?: { message?: Record<string, unknown> }[] }).choices?.[0]?.message : undefined;
