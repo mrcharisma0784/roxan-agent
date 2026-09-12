@@ -141,7 +141,7 @@ export const TOOL_SCHEMAS = [
       required: ["query"],
     },
   ),
-  fn("ask", "Kullanıcıdan eksik bir bilgiyi form ile sor; örnek soru ve seçenekleri belirt.", { type: "object", properties: { question: { type: "string" }, options: { type: "string", description: "Seçenekleri virgülle ayrılmış biçimde yaz" } }, required: ["question"] }),
+  fn("ask", "Kullanıcıdan eksik bir bilgiyi form ile sor. question alanına yalnızca soru cümlesini yaz; seçenekleri soru metnine ekleme. options alanına en fazla üç kısa seçeneği || ile ayırarak yaz.", { type: "object", properties: { question: { type: "string", description: "Yalnızca soru cümlesi; (1) seçenek gibi seçenekleri buraya yazma." }, options: { type: "string", description: "En fazla üç seçenek; yalnızca seçenek etiketlerini || ile ayır. Örnek: Genel görünüm || Teknik kalite || Duygusal etki" } }, required: ["question"] }),
   fn("memory_add", "Kullanıcı açıkça hatırlamamı istediğinde bilgiyi Mem0 hafızasına kaydet.", {
     type: "object",
     properties: {
