@@ -70,9 +70,10 @@ const env = (key: string): string | undefined => {
   return value ? value : undefined;
 };
 
-// Explicit off-switch. The deployer sets `VITE_AUTH_ENABLED=true` when it
-// provisions auth; set it to "false" to force auth off everywhere (dev user).
-const authDisabled = env("VITE_AUTH_ENABLED") === "false";
+// Auth is opt-in. The deployer sets `VITE_AUTH_ENABLED=true` together with the
+// broker credentials when it provisions auth. Treat an absent flag as disabled
+// so a plain Vercel deployment does not fall back to sandbox-only credentials.
+const authDisabled = env("VITE_AUTH_ENABLED") !== "true";
 
 // Broker federation creds: the deployer injects a per-app client when deployed;
 // otherwise fall back to the shared live-preview client, which the broker accepts
