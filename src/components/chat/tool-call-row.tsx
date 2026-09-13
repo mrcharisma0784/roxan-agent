@@ -1,3 +1,4 @@
+import * as React from "react";
 import { ChevronDown, ChevronUp, Copy, Plug } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";

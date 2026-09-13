@@ -1,3 +1,4 @@
+import * as React from "react";
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";

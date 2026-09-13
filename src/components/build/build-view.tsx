@@ -1,3 +1,4 @@
+import * as React from "react";
 import { ArrowUp, ChevronRight, FileText, Globe } from "lucide-react";
 import { useState, type FormEvent } from "react";
 

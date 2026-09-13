@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Fragment, type ReactNode } from "react";
 import { Copy, Download, FileText, Image, Reply } from "lucide-react";
 import { toast } from "sonner";

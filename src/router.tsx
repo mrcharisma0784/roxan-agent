@@ -1,3 +1,4 @@
+import * as React from "react";
 import { createRouter } from "@tanstack/react-router";
 import { AppErrorComponent } from "@/lib/error-component";
 import { routeTree } from "./routeTree.gen";

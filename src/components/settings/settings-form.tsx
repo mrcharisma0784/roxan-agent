@@ -1,3 +1,4 @@
+import * as React from "react";
 import { ChevronDown, ChevronUp, Eye, EyeOff, Plug, Sparkles, UserRound } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";

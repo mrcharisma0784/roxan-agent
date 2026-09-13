@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";

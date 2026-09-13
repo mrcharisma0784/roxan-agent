@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Brain, ChevronRight, Database, FilePlus2, FileText, Globe, Image, ImagePlus, Plus, Send, Square, X, Wrench } from "lucide-react";
 import { useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";

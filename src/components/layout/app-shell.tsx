@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useEffect, type ReactNode } from "react";
 import { Toaster } from "sonner";
 import { Header } from "@/components/layout/header";
