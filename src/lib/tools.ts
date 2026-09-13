@@ -33,6 +33,8 @@ import {
   ScanSearch,
   Search,
   SquareTerminal,
+  Database,
+  Eye,
 } from "lucide-react";
 
 export type ToolDef = {
@@ -110,6 +112,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { id: "page_scroll", icon: ArrowDownUp, active: "Page Scrolling", done: "Page Scrolled" },
       { id: "dom_inspect", icon: Code2, active: "DOM Inspecting", done: "DOM Inspected" },
       { id: "screenshot", icon: Camera, active: "Screenshot Capturing", done: "Screenshot Captured" },
+      { id: "browser_vision", icon: Eye, active: "Vision Analyzing", done: "Vision Analyzed" },
     ],
   },
   {
@@ -137,6 +140,9 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { id: "memory_recall", icon: ScanSearch, active: "Memory Recalling", done: "Memory Recalled" },
       { id: "memory_edit", icon: PenLine, active: "Memory Editing", done: "Memory Edited" },
       { id: "memory_remove", icon: CircleMinus, active: "Memory Removing", done: "Memory Removed" },
+      { id: "workspace_memory_recall", icon: Database, active: "Workspace Memory Reading", done: "Workspace Memory Read" },
+      { id: "workspace_memory_save", icon: Database, active: "Workspace Memory Saving", done: "Workspace Memory Saved" },
+      { id: "workspace_memory_list", icon: Database, active: "Workspace Memory Listing", done: "Workspace Memory Listed" },
     ],
   },
   {

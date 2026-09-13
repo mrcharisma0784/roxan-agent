@@ -29,11 +29,18 @@ const BASE_SYSTEM_PROMPT = `Sen Roxan'sın; kullanıcının diliyle net, doğru 
 Karar sırası: (1) Kullanıcının amacını ve elindeki girdileri belirle, (2) eksik zorunlu girdileri sor, (3) yalnızca gerçekten gerekliyse tek uygun tool'u seç, (4) tool sonucunu kontrol et, (5) sonucu kısa ve anlaşılır aktar.
 Görsel analizi ayrı vision katmanında yapılır ve analiz metni sana bağlam olarak gelir; görsel hakkında göremiyorum deme. Kullanıcı görsel gönderdiğinde onu tekrar isteme.
 Kullanıcı görsel veya dosya göndermeden bir dosya/görseli incelemeni isterse dosyayı iste. Normal sohbette kullanıcı yalnızca bir dosya adı/yolu verirse dosya sisteminden okumaya çalışma; yalnızca Build workspace modunda ve yol açıkça verildiğinde file_read kullan.
-Dosya eki varsa ekin içeriğini doğrudan kullan; aynı dosyayı tekrar isteme. Kullanıcı proje çıktısı, kaynak kodu veya ZIP istediğinde output klasörü içinde project_archive toolunu çağır; oluşan downloadUrl çıktısını kullanıcıya kart olarak sun. Ask tool kullanırken question alanına yalnızca soru cümlesini yaz; seçenekleri question içine (1) ... (2) ... olarak ekleme, seçenekleri yalnızca options alanında gönder. Tool hatası alırsan hatayı tekrarlamak yerine nedenini açıkla ve kullanıcıdan gereken eksik girdiyi iste.
-Selamlaşma ve kısa sohbetlerde tool kullanma. Yazma, silme, taşıma ve komut çalıştırma tool'larını ancak kullanıcı açıkça istediğinde kullan. Web search yalnızca etkinse ve güncel/harici doğrulama gerekiyorsa kullan. Memory tool'larını yalnızca açık hafıza talebinde kullan. Build modunda selamlaşma ve kısa sohbetlerde hiçbir tool kullanma. Gerçek bir proje isteğinde sıralı fazları uygula: AGENT.md okunduktan sonra ayrı bir reasoning çağrısı, ardından ayrı bir planning çağrısı, ardından plan adımlarını tek tek uygula. Dosya veya klasör isteniyorsa mutlaka gerçek file_create, dir_create, file_edit veya command_exec çağrısı yap ve sonucu doğrula; kodu yalnızca cevapta göstermeyi tamamlanmış sayma. Kullanıcı tercihi veya eksik zorunlu bilgi varsa ask toolunu çağır; seçenekleri mümkünse tam üç hazır cevap olarak üret. Fazları aynı turda birleştirme.`;
+Dosya eki varsa ekin içeriğini doğrudan kullan; aynı dosyayı tekrar isteme. Ekli dosya adı yalnızca yol gibi görünse bile file_read çağrısıyla ek bağlamından okunabilir; ekli dosyayı workspace dosyası sanıp "Dosya bulunamadı" deme. Görsel eklerini vision bağlamından kullan. Kullanıcı proje çıktısı, kaynak kodu veya ZIP istediğinde output klasörü içinde project_archive toolunu çağır; oluşan downloadUrl çıktısını kullanıcıya kart olarak sun. Ask tool kullanırken question alanına yalnızca soru cümlesini yaz; seçenekleri question içine (1) ... (2) ... olarak ekleme, seçenekleri yalnızca options alanında gönder. Tool hatası alırsan hatayı tekrarlamak yerine nedenini açıkla ve kullanıcıdan gereken eksik girdiyi iste.
+Selamlaşma ve kısa sohbetlerde tool kullanma. Yazma, silme, taşıma ve komut çalıştırma tool'larını ancak kullanıcı açıkça istediğinde kullan. Web search yalnızca etkinse ve güncel/harici doğrulama gerekiyorsa kullan. Memory tool'larını yalnızca açık hafıza talebinde kullan. Build modunda selamlaşma ve kısa sohbetlerde hiçbir tool kullanma. Gerçek bir proje isteğinde sıralı fazları uygula: AGENT.md okunduktan sonra ayrı bir reasoning çağrısı, ardından ayrı bir planning çağrısı, ardından plan adımlarını tek tek uygula. Dosya veya klasör isteniyorsa mutlaka gerçek file_create, dir_create, file_edit veya command_exec çağrısı yap ve sonucu doğrula; kodu yalnızca cevapta göstermeyi tamamlanmış sayma. Kullanıcı tercihi veya eksik zorunlu bilgi varsa ask toolunu çağır; seçenekleri mümkünse tam üç hazır cevap olarak üret. Fazları aynı turda birleştirme. Tool Orchestrator bağımlılıkları dikkate alır: aynı turda bağımsız tool çağrılarını paralel çalıştır, bir tool diğerine bağlıysa bağımlı olanı beklet. Özellikle browser'da navigate → inspect → click/type/screenshot ve dosyalarda read → edit/delete/move sırasını koru. Workspace modunda ilgili workspace memory kayıtlarını önce kullan; önemli proje kararlarını kullanıcı açıkça istediğinde workspace_memory_save ile kalıcılaştır. Tarayıcıda DOM bilgisi yetersizse browser_vision kullan ve Vision sonucunu sonraki browser kararına bağlam olarak değerlendir. Tool sonucu başarısızsa başarısızlığı görmezden gelme; sonucu analiz edip sonraki adımı buna göre seç.`;
 const REASONING_MODEL_PATTERNS = [/deepseek-r1/i, /qwq/i, /qwen.*(think|reason)/i, /gpt-oss/i, /phi-4-reason/i];
 const WRITE_TOOLS = new Set(["file_create", "file_edit", "file_delete", "file_move", "dir_create", "dir_delete", "dir_move", "command_exec", "memory_add", "memory_edit", "memory_remove"]);
 const FILE_TOOLS = new Set(["file_read", "workspace_instructions_read", "explore", "dir_list"]);
+const WORKSPACE_MEMORY_TOOLS = new Set(["workspace_memory_recall", "workspace_memory_save", "workspace_memory_list"]);
+const TOOL_DEPENDENCIES: Record<string, string[]> = {
+  file_edit: ["file_read"], file_delete: ["file_read"], file_move: ["file_read"],
+  dir_move: ["dir_list"], dir_delete: ["dir_list"],
+  element_click: ["page_navigate", "dom_inspect"], form_type: ["page_navigate", "dom_inspect"], element_hover: ["page_navigate", "dom_inspect"],
+  page_scroll: ["page_navigate"], screenshot: ["page_navigate"], browser_vision: ["page_navigate"],
+};
 
 function sse(obj: unknown) { return `data: ${JSON.stringify(obj)}\n\n`; }
 function asRole(value: string | undefined): ChatRole | null { return value === "user" || value === "assistant" || value === "system" ? value : null; }
@@ -84,10 +91,49 @@ async function readJsonSafe(response: Response) { try { return await response.js
 function messageText(content: ChatPayload["messages"][number]["content"]) { return typeof content === "string" ? content : content.filter((part) => part.type === "text").map((part) => part.text || "").join(" "); }
 function latestUserMessage(messages: ChatPayload["messages"]) { const message = [...messages].reverse().find((item) => item.role === "user"); return message ? messageText(message.content) : ""; }
 function isCasualMessage(content: string) { return /^(selam|merhaba|sa|hey|hello|hi|günaydın|iyi akşamlar|iyi geceler)[!.?,\s]*$/i.test(content.trim()); }
-function hasExplicitActionRequest(content: string) { return /(dosya|klasör|dizin|workspace|file|folder|directory|komut|command|terminal|script|oluştur|yaz|kaydet|oku|listele|sil|düzenle|değiştir|çalıştır|hafıza|hatırla|unut|memory|remember|forget|ara|search|ask|sor|seçenek|tercih|zip|arşiv|archive|indir|download|proje)/i.test(content); }
-function availableTools(messages: ChatPayload["messages"], webSearchEnabled: boolean, workspaceMode: boolean) { const latest = latestUserMessage(messages); if (!latest || isCasualMessage(latest)) return []; const explicitAction = hasExplicitActionRequest(latest); if (!explicitAction && !webSearchEnabled && !workspaceMode) return []; const actionContext = explicitAction || workspaceMode; return TOOL_SCHEMAS.filter((tool) => { const name = tool.function?.name || ""; if (name === "web_search") return webSearchEnabled; if (FILE_TOOLS.has(name) && !workspaceMode) return false; if (!actionContext) return false; return true; }); }
+function hasExplicitActionRequest(content: string) { return /(dosya|klasör|dizin|workspace|file|folder|directory|komut|command|terminal|script|oluştur|yaz|kaydet|oku|listele|sil|düzenle|değiştir|çalıştır|hafıza|hatırla|unut|memory|remember|forget|ara|search|ask|sor|seçenek|tercih|zip|arşiv|archive|indir|download|proje|tarayıcı|browser|web sitesi|ekran)/i.test(content); }
+function availableTools(messages: ChatPayload["messages"], webSearchEnabled: boolean, workspaceMode: boolean, hasAttachments = false) { const latest = latestUserMessage(messages); if (!latest || isCasualMessage(latest)) return []; const explicitAction = hasExplicitActionRequest(latest); if (!explicitAction && !webSearchEnabled && !workspaceMode) return []; const actionContext = explicitAction || workspaceMode || hasAttachments; return TOOL_SCHEMAS.filter((tool) => { const name = tool.function?.name || ""; if (name === "web_search") return webSearchEnabled; if (WORKSPACE_MEMORY_TOOLS.has(name) && !workspaceMode) return false; if (FILE_TOOLS.has(name) && !workspaceMode && !(hasAttachments && name === "file_read")) return false; if (!actionContext) return false; return true; }); }
 function normalizeAsk(question: string, rawOptions: string) { let cleanQuestion = question.trim(); const extracted: string[] = []; const optionPattern = /[\s,;]*(?:\(([1-9])\)|([1-9])[.)])\s+([^,;]+?)(?=\s*(?:,|;|\([1-9]\)|[1-9][.)]\s)|$)/g; let match: RegExpExecArray | null; while ((match = optionPattern.exec(cleanQuestion))) extracted.push(match[3].trim()); if (extracted.length >= 2) cleanQuestion = cleanQuestion.slice(0, cleanQuestion.search(/\s*(?:\([1-9]\)|[1-9][.)])\s*/)).trim().replace(/[,:;-]+$/, "?"); const supplied = rawOptions.split(/\s*\|\|\s*|\s*[,;]\s*/).map((item) => item.trim()).filter(Boolean); const options = [...extracted, ...supplied].filter((item, index, all) => item && all.indexOf(item) === index).slice(0, 3); return { question: cleanQuestion || "Hangi seçeneği tercih edersin?", options }; }
-function decodeAttachedText(text: string) { return text.replace(/data:([^;,]+);base64,([A-Za-z0-9+/=]+)/g, (_, mime: string, encoded: string) => { if (!/^text\//i.test(mime) && !/json|javascript|xml|csv|yaml|markdown/i.test(mime)) return `[${mime} dosya eki alındı; binary içerik doğrudan metin olarak çözülemedi]`; try { return `\n[Dosya içeriği]\n${Buffer.from(encoded, "base64").toString("utf8").slice(0, 16000)}\n[/Dosya içeriği]`; } catch { return "[Dosya içeriği okunamadı]"; } }); }
+function decodeDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/is);
+  if (!match) return null;
+  try { return { mime: match[1].toLowerCase(), buffer: Buffer.from(match[2], "base64") }; } catch { return null; }
+}
+
+function attachmentRecords(messages: ChatPayload["messages"]) {
+  const records: { name: string; mime: string; text?: string; dataUrl: string }[] = [];
+  for (const message of messages) {
+    if (message.role !== "user" || !Array.isArray(message.content)) continue;
+    let pendingName = "Ek";
+    for (const part of message.content) {
+      if (part.type !== "text" || !part.text) continue;
+      const nameAndData = part.text.match(/Ekli dosya:\s*([^\n]+)\n(data:[^\n]+)/i);
+      if (nameAndData) {
+        pendingName = nameAndData[1].trim();
+        const data = decodeDataUrl(nameAndData[2].trim());
+        if (!data) continue;
+        const textLike = /^text\//i.test(data.mime) || /json|javascript|typescript|xml|csv|yaml|markdown|x-python|x-sh|sql/i.test(data.mime);
+        records.push({ name: pendingName, mime: data.mime, text: textLike ? data.buffer.toString("utf8") : undefined, dataUrl: nameAndData[2].trim() });
+        continue;
+      }
+      const data = decodeDataUrl(part.text);
+      if (!data) continue;
+      const textLike = /^text\//i.test(data.mime) || /json|javascript|typescript|xml|csv|yaml|markdown|x-python|x-sh|sql/i.test(data.mime);
+      records.push({ name: pendingName, mime: data.mime, text: textLike ? data.buffer.toString("utf8") : undefined, dataUrl: part.text });
+    }
+  }
+  return records;
+}
+
+function decodeAttachedText(content: CfMessage["content"]) {
+  return content.replace(/data:([^;,]+)(?:;[^,]*)?;base64,([A-Za-z0-9+/=]+)/g, (_, mime: string, encoded: string) => {
+    const textLike = /^text\//i.test(mime) || /json|javascript|typescript|xml|csv|yaml|markdown|x-python|x-sh|sql/i.test(mime);
+    if (!textLike) return `[${mime} dosya eki alındı; ikili içerik doğrudan metin olarak çözülemedi]`;
+    try { return `\n[Dosya içeriği]\n${Buffer.from(encoded, "base64").toString("utf8").slice(0, 16000)}\n[/Dosya içeriği]`; }
+    catch { return "[Dosya içeriği okunamadı]"; }
+  });
+}
+
 
 async function callChat(payload: ChatPayload, messages: CfMessage[], tools: typeof TOOL_SCHEMAS) {
   const source = messages.map((message) => ({ ...message, content: decodeAttachedText(message.content) }));
@@ -127,20 +173,43 @@ async function enrichVision(payload: ChatPayload, messages: ChatPayload["message
   return messages.map((message) => ({ role: message.role, content: message === target ? `${messageText(message.content)}\n\n[Görsel analizi]\n${analysis}` : typeof message.content === "string" ? message.content : messageText(message.content) })) as CfMessage[];
 }
 
+function dependencyLevels(prepared: { callId: string; toolId: string }[]) {
+  const byTool = new Map<string, string[]>();
+  for (const item of prepared) byTool.set(item.toolId, [...(byTool.get(item.toolId) || []), item.callId]);
+  const levels: { callId: string; toolId: string }[][] = [];
+  const placed = new Set<string>();
+  let remaining = [...prepared];
+  while (remaining.length) {
+    const ready = remaining.filter((item) => (TOOL_DEPENDENCIES[item.toolId] || []).every((dep) => !byTool.has(dep) || byTool.get(dep)!.some((id) => placed.has(id))));
+    if (!ready.length) { levels.push(remaining); break; }
+    levels.push(ready);
+    ready.forEach((item) => placed.add(item.callId));
+    const ids = new Set(ready.map((x) => x.callId));
+    remaining = remaining.filter((item) => !ids.has(item.callId));
+  }
+  return levels;
+}
+
 export async function handleChat(request: Request): Promise<Response> {
   let payload: ChatPayload;
   try { payload = parseChatRequest(await request.json()); } catch (error) { return Response.json({ message: error instanceof Error ? error.message : "Geçersiz istek." }, { status: 400 }); }
   const encoder = new TextEncoder();
   const stream = new ReadableStream({ async start(controller) { const send = (obj: unknown) => controller.enqueue(encoder.encode(sse(obj))); try {
-    const directFile = payload.messages.some((message) => message.role === "user" && Array.isArray(message.content) && message.content.some((part) => part.type === "text" && /data:[^;]+;base64,/i.test(part.text || "")));
-    const fileReadCallId = directFile ? `attachment-${randomUUID()}` : "";
-    if (fileReadCallId) send({ type: "tool_call", callId: fileReadCallId, toolId: "file_read", detail: "Ekli dosya okunuyor", data: { source: "message attachment" } });
+    const attachments = attachmentRecords(payload.messages);
+    const attachmentText = Object.fromEntries(attachments.filter((item) => item.text !== undefined).map((item) => [item.name, item.text || ""]));
+    const directFile = attachments.length > 0;
     let conversation = await enrichVision(payload, payload.messages);
-    if (payload.workspaceMode) { const instructionCallId = `instructions-${randomUUID()}`; send({ type: "tool_call", callId: instructionCallId, toolId: "workspace_instructions_read", detail: "AGENT.md okunuyor", data: { path: "AGENT.md" } }); await new Promise((resolve) => setTimeout(resolve, 0)); const instructions = await runTool("workspace_instructions_read", {}, { workspaceMode: true, workspaceId: payload.workspaceId }); send({ type: "tool_result", callId: instructionCallId, toolId: "workspace_instructions_read", error: !instructions.ok, detail: instructions.ok ? "AGENT.md okundu" : instructions.error, data: instructions }); if (instructions.ok && instructions.content) conversation = [{ role: "system", content: `Workspace talimatları:
+    if (attachments.length) {
+      const names = attachments.map((item) => item.name).join(", ");
+      conversation = [{ role: "system", content: `Bu sohbette kullanıcı tarafından eklenmiş dosyalar var: ${names}. Bu ekler geçici olarak bu istek bağlamında erişilebilir. Kullanıcı bir ek dosyayı okumak isterse file_read toolunu kullan; dosya workspace içinde bulunmasa bile ek bağlamından okunabilir.` }, ...conversation];
+    }
+    if (payload.workspaceMode) {
+      const memory = await runTool("workspace_memory_recall", { query: latestUserMessage(payload.messages), limit: 8 }, { workspaceMode: true, workspaceId: payload.workspaceId, attachments: attachmentText });
+      if (memory.ok && Array.isArray(memory.memories) && memory.memories.length) conversation = [{ role: "system", content: `Workspace hafızası (ilgili kayıtlar):\n${memory.memories.map((m: any) => `- ${m.content || JSON.stringify(m)}`).join("\n")}` }, ...conversation];
+    }
+    if (payload.workspaceMode) { const instructionCallId = `instructions-${randomUUID()}`; send({ type: "tool_call", callId: instructionCallId, toolId: "workspace_instructions_read", detail: "AGENT.md okunuyor", data: { path: "AGENT.md" } }); await new Promise((resolve) => setTimeout(resolve, 0)); const instructions = await runTool("workspace_instructions_read", {}, { workspaceMode: true, workspaceId: payload.workspaceId, attachments: attachmentText }); send({ type: "tool_result", callId: instructionCallId, toolId: "workspace_instructions_read", error: !instructions.ok, detail: instructions.ok ? "AGENT.md okundu" : instructions.error, data: instructions }); if (instructions.ok && instructions.content) conversation = [{ role: "system", content: `Workspace talimatları:
 ${instructions.content}` }, ...conversation]; }
-    if (fileReadCallId) await new Promise((resolve) => setTimeout(resolve, 450));
-    if (fileReadCallId) send({ type: "tool_result", callId: fileReadCallId, toolId: "file_read", error: false, detail: "Ekli dosya okundu", data: { ok: true, message: "Dosya içeriği doğrudan modele aktarıldı." } });
-    const allTools = availableTools(payload.messages, payload.webSearchEnabled, Boolean(payload.workspaceMode));
+    const allTools = availableTools(payload.messages, payload.webSearchEnabled, Boolean(payload.workspaceMode), directFile);
     const phaseTool = (name: string) => allTools.filter((tool) => tool.function?.name === name);
     for (let turn = 0; turn < 12; turn++) {
       const tools = payload.workspaceMode && !isCasualMessage(latestUserMessage(payload.messages)) ? (turn === 0 ? phaseTool("reasoning") : turn === 1 ? phaseTool("planning") : allTools) : allTools;
@@ -156,8 +225,23 @@ ${instructions.content}` }, ...conversation]; }
       const prepared = toolCalls.map((call) => { const callId = call.id || randomUUID(); const toolId = call.function?.name || "api_request"; let args: Record<string, unknown> = {}; try { args = JSON.parse(call.function?.arguments || "{}"); } catch { /* malformed args */ } return { callId, toolId, args, call }; });
       prepared.forEach(({ callId, toolId, args }) => send({ type: "tool_call", callId, toolId, detail: summarizeArgs(args), data: args }));
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const results = await Promise.all(prepared.map(async ({ toolId, args }) => { try { return await runTool(toolId, args, { firecrawlApiKey: payload.settings.firecrawlApiKey, mem0ApiKey: payload.settings.mem0ApiKey, workspaceMode: payload.workspaceMode, workspaceId: payload.workspaceId }); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } as ToolResult; } }));
-      for (let index = 0; index < prepared.length; index += 1) { const { callId, toolId } = prepared[index]; const result = results[index]; if (toolId === "ask" && result.ok) { const askData = result.data as { question?: string; options?: string } | undefined; const normalized = normalizeAsk(askData?.question || "Bir tercih belirtir misin?", askData?.options || ""); const options = normalized.options.length ? normalized.options : ["Varsayılan seçeneği kullan", "Daha sonra karar ver", "Özel bir tercih belirteceğim"]; send({ type: "ask", question: normalized.question, options: options.slice(0, 3) }); send({ type: "tool_result", callId, toolId, error: false, detail: "Kullanıcı yanıtı bekleniyor", data: result }); send({ type: "done" }); controller.close(); return; } send({ type: "tool_result", callId, toolId, error: !result.ok, detail: summarizeResult(result), data: result }); conversation.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(result) }); }
+      const byId = new Map(prepared.map((item) => [item.callId, item]));
+      const completed = new Map<string, ToolResult>();
+      for (const level of dependencyLevels(prepared)) {
+        const levelResults = await Promise.all(level.map(async ({ callId }) => {
+          const item = byId.get(callId);
+          const toolId = item?.toolId || "api_request";
+          const args = item?.args || {};
+          send({ type: "tool_progress", callId, toolId, progress: 5, detail: "Starting" });
+          try {
+            const result = await runTool(toolId, args, { firecrawlApiKey: payload.settings.firecrawlApiKey, mem0ApiKey: payload.settings.mem0ApiKey, workspaceMode: payload.workspaceMode, workspaceId: payload.workspaceId, attachments: attachmentText, visionAccountId: payload.settings.visionAccountId || payload.settings.accountId, visionApiToken: payload.settings.visionApiToken || payload.settings.apiToken, visionModel: payload.settings.modelProfiles.visionModel, reportProgress: (detail, data) => send({ type: "tool_progress", callId, toolId, detail, progress: 55, data }) });
+            send({ type: "tool_progress", callId, toolId, progress: result.ok ? 92 : 85, detail: summarizeResult(result) || "Processing" });
+            return [callId, result] as const;
+          } catch (error) { return [callId, { ok: false, error: error instanceof Error ? error.message : String(error) } as ToolResult] as const; }
+        }));
+        for (const [callId, result] of levelResults) { completed.set(callId, result); send({ type: "tool_progress", callId, toolId: byId.get(callId)?.toolId || "", progress: 100, detail: summarizeResult(result) || "Completed" }); }
+      }
+      for (const { callId, toolId } of prepared) { const result = completed.get(callId) || { ok: false, error: "Tool sonucu alınamadı." }; if (toolId === "ask" && result.ok) { const askData = result.data as { question?: string; options?: string } | undefined; const normalized = normalizeAsk(askData?.question || "Bir tercih belirtir misin?", askData?.options || ""); const options = normalized.options.length ? normalized.options : ["Varsayılan seçeneği kullan", "Daha sonra karar ver", "Özel bir tercih belirteceğim"]; send({ type: "ask", question: normalized.question, options: options.slice(0, 3) }); send({ type: "tool_result", callId, toolId, error: false, detail: "Kullanıcı yanıtı bekleniyor", data: result }); send({ type: "done" }); controller.close(); return; } send({ type: "tool_result", callId, toolId, error: !result.ok, detail: summarizeResult(result), data: result }); conversation.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(result) }); }
     }
     send({ type: "error", message: "Tool kullanım sınırına ulaşıldı; isteği daha küçük adımlara bölebilirsin." }); controller.close();
   } catch (error) { send({ type: "error", message: error instanceof Error ? error.message : "Beklenmeyen hata." }); controller.close(); } } });

@@ -18,6 +18,8 @@ export type ToolCallEvent = {
   data?: unknown;
 };
 
+export type ToolProgressEvent = { type: "tool_progress"; callId: string; toolId: string; detail?: string; progress?: number; data?: unknown };
+
 export type ToolResultEvent = {
   type: "tool_result";
   callId: string;
@@ -32,6 +34,7 @@ type StreamEvent =
   | { type: "delta"; text: string }
   | ToolCallEvent
   | ToolResultEvent
+  | ToolProgressEvent
   | AskEvent
   | { type: "error"; message: string }
   | { type: "done" };
@@ -73,6 +76,7 @@ export async function streamChat(
     onDelta: (text: string) => void;
     onToolCall?: (event: ToolCallEvent) => void;
     onToolResult?: (event: ToolResultEvent) => void;
+    onToolProgress?: (event: ToolProgressEvent) => void;
     onAsk?: (event: AskEvent) => void;
   },
   signal?: AbortSignal,
@@ -126,6 +130,7 @@ export async function streamChat(
       if (event.type === "delta" && event.text) handlers.onDelta(event.text);
       if (event.type === "tool_call") handlers.onToolCall?.(event);
       if (event.type === "tool_result") handlers.onToolResult?.(event);
+      if (event.type === "tool_progress") handlers.onToolProgress?.(event);
       if (event.type === "ask") handlers.onAsk?.(event);
       if (event.type === "error") throw new Error(event.message);
     }

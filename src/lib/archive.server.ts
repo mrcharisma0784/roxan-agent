@@ -3,7 +3,7 @@ import path from "node:path";
 import { unzipSync, zipSync } from "fflate";
 import { BUILD_AGENT_MD, isLegacyGeneratedAgent } from "@/lib/build-agent-instructions";
 
-const EXCLUDED = new Set(["node_modules", ".git", "output"]);
+const EXCLUDED = new Set(["node_modules", ".git", "output", ".roxan"]);
 
 function safeRelative(value: string) {
   const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "");
@@ -54,6 +54,10 @@ export async function extractZipFile(archivePath: string, destination: string) {
     const target = path.resolve(destination, name);
     const root = path.resolve(destination);
     if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new Error("ZIP içeriği workspace dışına çıkamaz.");
+    if (rawName.endsWith("/")) {
+      await fs.mkdir(target, { recursive: true });
+      continue;
+    }
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, data);
     count += 1;

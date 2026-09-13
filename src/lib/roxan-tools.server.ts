@@ -1,4 +1,5 @@
 import { exec } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -15,6 +16,11 @@ export type ToolCredentials = {
   mem0ApiKey?: string;
   workspaceMode?: boolean;
   workspaceId?: string;
+  attachments?: Record<string, string>;
+  reportProgress?: (detail: string, data?: unknown) => void;
+  visionAccountId?: string;
+  visionApiToken?: string;
+  visionModel?: string;
 };
 
 export type ToolResult = {
@@ -128,6 +134,14 @@ export const TOOL_SCHEMAS = [
     properties: { archive: { type: "string", description: "ZIP dosyasının workspace'e göreli yolu" }, destination: { type: "string", description: "Açılacak hedef klasör; varsayılan arşiv adı" } },
     required: ["archive"],
   }),
+  fn("workspace_memory_recall", "Bu workspace için yerel hafızadan ilgili kayıtları getir.", {
+    type: "object", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 20 } }, required: ["query"],
+  }),
+  fn("workspace_memory_save", "Workspace için kalıcı bir bilgi/karar kaydet.", {
+    type: "object", properties: { content: { type: "string" }, category: { type: "string" } }, required: ["content"],
+  }),
+  fn("workspace_memory_list", "Workspace hafızasının kayıtlarını listele.", { type: "object", properties: {} }),
+  fn("browser_vision", "Tarayıcı ekranını Vision modeliyle analiz et; DOM yerine görsel bağlam gerektiğinde kullan.", { type: "object", properties: { prompt: { type: "string", description: "Vision analiz talebi" } } }),
   fn("page_navigate", "Tarayıcı sayfasına git.", { type: "object", properties: { url: { type: "string" } }, required: ["url"] }),
   fn("element_click", "Tarayıcıdaki elementi tıkla.", { type: "object", properties: { selector: { type: "string" } }, required: ["selector"] }),
   fn("form_type", "Tarayıcı form alanına yaz.", { type: "object", properties: { selector: { type: "string" }, text: { type: "string" } }, required: ["selector", "text"] }),
@@ -270,6 +284,16 @@ async function walk(dir: string, depth: number, query: string, acc: { name: stri
   }
 }
 
+let browserState: { browser: import("playwright").Browser; page: import("playwright").Page } | null = null;
+async function browserSession() {
+  if (browserState) return browserState;
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  browserState = { browser, page };
+  return browserState;
+}
+
 export async function runTool(
   name: string,
   args: Record<string, unknown>,
@@ -277,6 +301,7 @@ export async function runTool(
 ): Promise<ToolResult> {
   const workdir = await getWorkdir(Boolean(credentials.workspaceMode), credentials.workspaceId);
   const asString = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
+  credentials.reportProgress?.(summarizeArgs(args) ? `${summarizeArgs(args)}` : "Starting");
 
   switch (name) {
     case "file_read": {
@@ -285,6 +310,9 @@ export async function runTool(
         const content = await fs.readFile(p, "utf-8");
         return { ok: true, content: content.slice(0, 12000) };
       } catch (error) {
+        const requested = asString(args.path).replaceAll("\\", "/").replace(/^\/+/, "");
+        const attachment = credentials.attachments?.[requested] ?? credentials.attachments?.[path.basename(requested)];
+        if (attachment !== undefined) return { ok: true, content: attachment.slice(0, 16000), message: `Ekli dosya okundu: ${requested}` };
         const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : "";
         return { ok: false, error: code === "ENOENT" ? `Dosya bulunamadı: ${asString(args.path)}` : String(error instanceof Error ? error.message : error) };
       }
@@ -346,6 +374,7 @@ export async function runTool(
       return { ok: true, message: `Taşındı: ${asString(args.from)} → ${asString(args.to)}` };
     }
     case "explore": {
+      credentials.reportProgress?.("Scanning workspace");
       const p = resolveSafe(workdir, asString(args.path, "."));
       const entries: { name: string; type: "dir" | "file" }[] = [];
       await walk(p, 2, asString(args.query), entries);
@@ -365,6 +394,7 @@ export async function runTool(
       return { ok: false, error: "Workspace'te AGENTS.md / README.md bulunamadı." };
     }
     case "command_exec": {
+      credentials.reportProgress?.("Command started");
       try {
         const { stdout, stderr } = await execAsync(asString(args.command), {
           cwd: workdir,
@@ -383,6 +413,7 @@ export async function runTool(
       }
     }
     case "zip_create": {
+      credentials.reportProgress?.("Collecting files for archive");
       const source = asString(args.source, ".");
       const sourcePath = resolveSafe(workdir, source);
       const stat = await fs.stat(sourcePath);
@@ -402,12 +433,72 @@ export async function runTool(
       return { ok: true, message: `${count} dosya açıldı.`, data: { archive, destination: path.relative(workdir, destination), count } };
     }
     case "ask": { return { ok: true, data: { question: asString(args.question, "Bu işlem için hangi bilgiyi tercih edersin?"), options: asString(args.options) }, message: "Kullanıcı yanıtı bekleniyor." }; }
-    case "page_navigate": case "element_click": case "form_type": case "element_hover": case "page_scroll": case "dom_inspect": case "screenshot": { return { ok: false, error: "Tarayıcı connector bu Roxan dağıtımında yapılandırılmamış; browser connector etkinleştirildiğinde bu tool doğrudan kullanılabilir." }; }
+    case "workspace_memory_recall": {
+      const memoryDir = path.join(workdir, ".roxan");
+      const memoryPath = path.join(memoryDir, "workspace-memory.json");
+      try {
+        const raw = await fs.readFile(memoryPath, "utf8");
+        const records = JSON.parse(raw) as { id: string; content: string; category?: string; createdAt: string }[];
+        const q = asString(args.query).trim().toLowerCase();
+        const limit = Math.min(Math.max(Number(args.limit) || 8, 1), 20);
+        const matches = records.filter((r) => !q || `${r.content} ${r.category || ""}`.toLowerCase().includes(q)).slice(-limit).reverse();
+        credentials.reportProgress?.(`Found ${matches.length} memory ${matches.length === 1 ? "entry" : "entries"}`, { count: matches.length });
+        return { ok: true, memories: matches };
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : "";
+        if (code === "ENOENT") return { ok: true, memories: [] };
+        return { ok: false, error: String(error instanceof Error ? error.message : error) };
+      }
+    }
+    case "workspace_memory_save": {
+      const content = asString(args.content).trim();
+      if (!content) return { ok: false, error: "Kaydedilecek içerik boş." };
+      const memoryDir = path.join(workdir, ".roxan");
+      const memoryPath = path.join(memoryDir, "workspace-memory.json");
+      await fs.mkdir(memoryDir, { recursive: true });
+      let records: { id: string; content: string; category?: string; createdAt: string }[] = [];
+      try { records = JSON.parse(await fs.readFile(memoryPath, "utf8")); } catch { /* first record */ }
+      const duplicate = records.find((r) => r.content.trim().toLowerCase() === content.toLowerCase());
+      if (duplicate) return { ok: true, message: "Bu bilgi workspace hafızasında zaten kayıtlı.", data: duplicate };
+      const record = { id: randomUUID(), content, category: asString(args.category, "general"), createdAt: new Date().toISOString() };
+      records.push(record);
+      if (records.length > 200) records = records.slice(-200);
+      await fs.writeFile(memoryPath, JSON.stringify(records, null, 2), "utf8");
+      credentials.reportProgress?.("Memory saved", { category: record.category });
+      return { ok: true, message: "Workspace hafızasına kaydedildi.", data: record };
+    }
+    case "workspace_memory_list": {
+      const memoryPath = path.join(workdir, ".roxan", "workspace-memory.json");
+      try { const records = JSON.parse(await fs.readFile(memoryPath, "utf8")); return { ok: true, memories: records.slice(-100).reverse() }; }
+      catch { return { ok: true, memories: [] }; }
+    }
+    case "page_navigate": { const b = await browserSession(); await b.page.goto(asString(args.url), { waitUntil: "domcontentloaded", timeout: 30_000 }); credentials.reportProgress?.(`Opened ${asString(args.url)}`); return { ok: true, message: `Sayfa açıldı: ${asString(args.url)}`, data: { url: b.page.url(), title: await b.page.title() } }; }
+    case "element_click": { const b = await browserSession(); await b.page.locator(asString(args.selector)).first().click({ timeout: 15_000 }); credentials.reportProgress?.("Element clicked"); return { ok: true, message: `Tıklandı: ${asString(args.selector)}` }; }
+    case "form_type": { const b = await browserSession(); await b.page.locator(asString(args.selector)).first().fill(asString(args.text), { timeout: 15_000 }); credentials.reportProgress?.("Text entered"); return { ok: true, message: `Yazıldı: ${asString(args.selector)}` }; }
+    case "element_hover": { const b = await browserSession(); await b.page.locator(asString(args.selector)).first().hover({ timeout: 15_000 }); credentials.reportProgress?.("Element hovered"); return { ok: true, message: `Üzerine gelindi: ${asString(args.selector)}` }; }
+    case "page_scroll": { const b = await browserSession(); const amount = Number(args.amount) || 600; await b.page.mouse.wheel(0, amount); credentials.reportProgress?.(`Scrolled ${amount}px`); return { ok: true, message: `Sayfa ${amount}px kaydırıldı.` }; }
+    case "dom_inspect": { const b = await browserSession(); const selector = asString(args.selector, "body"); const content = await b.page.locator(selector).first().evaluate((el) => ({ tag: el.tagName, text: (el.textContent || "").slice(0, 12000), html: (el as HTMLElement).outerHTML.slice(0, 16000) })); credentials.reportProgress?.("DOM inspected"); return { ok: true, data: content }; }
+    case "screenshot": { const b = await browserSession(); const buffer = await b.page.screenshot({ type: "png", fullPage: false }); credentials.reportProgress?.("Screenshot captured"); return { ok: true, message: "Tarayıcı ekran görüntüsü hazır.", data: { url: b.page.url(), image: `data:image/png;base64,${buffer.toString("base64")}` } }; }
+    case "browser_vision": {
+      const b = await browserSession();
+      const buffer = await b.page.screenshot({ type: "png", fullPage: false });
+      const image = `data:image/png;base64,${buffer.toString("base64")}`;
+      if (!credentials.visionAccountId || !credentials.visionApiToken) return { ok: false, error: "Vision bağlantısı yapılandırılmamış." };
+      const model = credentials.visionModel || "@cf/qwen/qwen3.8-27b";
+      const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${credentials.visionAccountId}/ai/v1/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${credentials.visionApiToken}` }, body: JSON.stringify({ model, stream: false, max_tokens: 2048, messages: [{ role: "user", content: [{ type: "text", text: asString(args.prompt, "Bu tarayıcı ekranını analiz et. Görünür metinleri, önemli kontrolleri, düzeni ve kullanıcının amacı açısından ilgili öğeleri belirt.") }, { type: "image_url", image_url: { url: image } }] }] }) });
+      const json = await response.json().catch(() => null);
+      if (!response.ok) return { ok: false, error: `Vision ${response.status}: ${JSON.stringify(json).slice(0, 1000)}` };
+      const content = json && typeof json === "object" && Array.isArray((json as any).choices) ? (json as any).choices[0]?.message?.content : "";
+      if (!content) return { ok: false, error: "Vision modeli boş yanıt döndürdü." };
+      credentials.reportProgress?.("Vision analysis completed");
+      return { ok: true, content: typeof content === "string" ? content : JSON.stringify(content), data: { url: b.page.url(), model } };
+    }
     case "image_view": { const p = resolveSafe(workdir, asString(args.path)); try { const stat = await fs.stat(p); return { ok: stat.isFile(), message: stat.isFile() ? `Görsel hazır: ${asString(args.path)}` : "Görsel dosyası değil." }; } catch { return { ok: false, error: `Görsel bulunamadı: ${asString(args.path)}` }; } }
     case "planning": case "reasoning": case "skills_load": case "skills_unload": { return { ok: true, message: `${name} tamamlandı.`, data: args }; }
     case "api_request": { return { ok: false, error: "API isteği için güvenli connector yapılandırılmamış." }; }
     case "deploy": { return { ok: false, error: "Deploy connector yapılandırılmadan yayınlama yapılamaz." }; }
     case "project_archive": {
+      credentials.reportProgress?.("Collecting project files");
       const filename = sanitizeArchiveName(asString(args.filename, "roxan-project"));
       const outputDir = path.join(workdir, "output");
       await fs.mkdir(outputDir, { recursive: true });

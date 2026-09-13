@@ -102,7 +102,7 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
     const active = snapshot.conversations.find((item) => item.id === snapshot.activeConversationId);
     const history: { role: "user" | "assistant" | "system"; content: string | { type: "text" | "image_url"; text?: string; image_url?: { url: string } }[] }[] = (active?.messages ?? [])
       .filter((message) => message.id !== assistantId && (message.content.trim() || Boolean(message.attachments?.length)) && !message.error)
-      .map((message) => { const isCurrentUser = message.role === "user" && message.id === active?.messages.filter((item) => item.role === "user").at(-1)?.id; const attachmentsText = message.attachments?.map((attachment) => `Ek dosya: ${attachment.name}`).join("\n") || ""; const priorImages = active?.messages.filter((item) => item.role === "user").flatMap((item) => item.attachments || []).filter((attachment) => attachment.kind === "image" && attachment.dataUrl).slice(-3) || []; const imageContext = isCurrentUser && !message.attachments?.length && priorImages.length ? priorImages : message.attachments || []; const content = isCurrentUser && imageContext.length ? [{ type: "text" as const, text: `${message.content || "Ekli görseli incele."}\n${attachmentsText}` }, ...imageContext.filter((attachment) => attachment.kind === "image" && attachment.dataUrl).map((attachment) => ({ type: "image_url" as const, image_url: { url: attachment.dataUrl! } }))] : message.content || attachmentsText; return { role: message.role, content }; });
+      .map((message) => { const isCurrentUser = message.role === "user" && message.id === active?.messages.filter((item) => item.role === "user").at(-1)?.id; const attachmentsText = message.attachments?.map((attachment) => `Ek dosya: ${attachment.name}`).join("\n") || ""; const priorImages = active?.messages.filter((item) => item.role === "user").flatMap((item) => item.attachments || []).filter((attachment) => attachment.kind === "image" && attachment.dataUrl).slice(-3) || []; const imageContext = isCurrentUser && !message.attachments?.length && priorImages.length ? priorImages : message.attachments || []; const fileParts = (message.attachments || []).filter((attachment) => attachment.kind === "file" && attachment.dataUrl).map((attachment) => `Ekli dosya: ${attachment.name}\n${attachment.dataUrl}`); const imageParts = imageContext.filter((attachment) => attachment.kind === "image" && attachment.dataUrl).map((attachment) => ({ type: "image_url" as const, image_url: { url: attachment.dataUrl! } })); const text = message.content || (fileParts.length ? "Ekli dosyaları incele." : attachmentsText); const content = imageParts.length || fileParts.length ? [{ type: "text" as const, text: `${text}\n${attachmentsText}\n${fileParts.join("\n")}`.trim() }, ...imageParts] : text; return { role: message.role, content }; });
     const currentUser = history[history.length - 1];
     if (currentUser && attachments.length > 0) {
       currentUser.content = [
@@ -139,13 +139,24 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
               status: "active",
               detail: event.detail,
               input: event.data ?? event.detail,
+              startedAt: Date.now(),
+              progress: 0,
+            });
+          },
+          onToolProgress: (event) => {
+            useRoxan.getState().updateToolCall(assistantId, event.callId, {
+              status: "active",
+              progress: event.progress,
+              detail: event.detail,
             });
           },
           onToolResult: (event) => {
             useRoxan.getState().updateToolCall(assistantId, event.callId, {
               status: event.error ? "error" : "done",
+              progress: 100,
               detail: event.detail,
               output: event.data ?? event.detail,
+              finishedAt: Date.now(),
             });
           },
           onAsk: (event) => { setAskQueue((queue) => [...queue, { question: event.question, options: event.options || [] }]); },

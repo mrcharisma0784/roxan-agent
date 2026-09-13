@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 export type ChatRole = "user" | "assistant" | "system";
 export type ToolCallStatus = "active" | "done" | "error";
-export type ToolCall = { callId: string; toolId: string; status: ToolCallStatus; detail?: string; input?: unknown; output?: unknown };
+export type ToolCall = { callId: string; toolId: string; status: ToolCallStatus; detail?: string; input?: unknown; output?: unknown; progress?: number; startedAt?: number; finishedAt?: number };
 export type ChatAttachment = { name: string; kind: "file" | "image"; type: string; dataUrl?: string };
 export type ChatMessage = { id: string; role: ChatRole; content: string; createdAt: number; error?: string; toolCalls?: ToolCall[]; attachments?: ChatAttachment[]; replyTo?: { id: string; content: string } };
 export type Conversation = { id: string; title: string; messages: ChatMessage[]; updatedAt: number; mode?: "chat" | "build"; workspaceId?: string };
