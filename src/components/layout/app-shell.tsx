@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { Header } from "@/components/layout/header";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useRoxan } from "@/store/roxan";
+import { BackgroundTaskRunner } from "@/components/tasks/background-task-runner";
 
 export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -15,6 +16,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <TooltipProvider delayDuration={400}>
       <div className="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
         <Header />
+        <BackgroundTaskRunner />
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
         <Toaster
           theme="dark"

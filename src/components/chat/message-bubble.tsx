@@ -4,7 +4,7 @@ import { Copy, Download, FileText, Image, Reply } from "lucide-react";
 import { toast } from "sonner";
 import { ToolCallList } from "@/components/chat/tool-call-list";
 import { cn } from "@/lib/utils";
-import type { ChatMessage } from "@/store/roxan";
+import type { Artifact, ChatMessage } from "@/store/roxan";
 
 export function MessageBubble({ message, streaming, onReply, onReplyClick, id }: { message: ChatMessage; streaming?: boolean; onReply?: () => void; onReplyClick?: (id: string) => void; id?: string }) {
   const isUser = message.role === "user";
@@ -18,6 +18,7 @@ export function MessageBubble({ message, streaming, onReply, onReplyClick, id }:
     <div className={cn("max-w-full min-w-0 overflow-hidden text-sm leading-relaxed text-fg sm:max-w-xl", isUser ? "self-end rounded-2xl rounded-br-md bg-bg-elevated px-4 py-2.5 shadow-border" : "flex flex-col gap-2 rounded-2xl rounded-bl-md bg-bg-elevated px-4 py-2.5 shadow-border")}>
       {message.attachments?.length ? <div className="mb-1 flex flex-wrap gap-1.5">{message.attachments.map((attachment) => <span key={`${attachment.name}-${attachment.kind}`} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-bg-subtle px-2 py-1 text-xs text-fg"><span className="text-muted">{attachment.kind === "image" ? <Image className="size-3.5" /> : <FileText className="size-3.5" />}</span><span className="max-w-40 truncate">{attachment.name}</span></span>)}</div> : null}
       {!isUser ? <ToolCallList toolCalls={message.toolCalls} /> : null}
+      {!isUser && message.artifacts?.length ? <div className="flex flex-col gap-2">{message.artifacts.map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} />)}</div> : null}
       {!isUser ? message.toolCalls?.map((call) => {
         const data = call.output && typeof call.output === "object" ? call.output as Record<string, unknown> : null;
         const nested = data?.data && typeof data.data === "object" ? data.data as Record<string, unknown> : data;
@@ -30,6 +31,16 @@ export function MessageBubble({ message, streaming, onReply, onReplyClick, id }:
     {isUser && message.replyTo ? <button type="button" className="mr-0 flex max-w-xl items-center gap-1.5 self-end border-r-2 border-border px-2 text-xs text-muted hover:text-fg" onClick={() => onReplyClick?.(message.replyTo!.id)}><Reply className="size-3 -scale-x-100" /><span className="truncate">Replied to Agent</span></button> : null}
     {canActions ? <div className="ml-2 flex items-center gap-1"><button type="button" className="grid size-7 place-items-center rounded-lg text-muted hover:bg-bg-subtle hover:text-fg" onClick={copyResponse} aria-label="Yanıtı kopyala"><Copy className="size-3.5" /></button><button type="button" className="grid size-7 place-items-center rounded-lg text-muted hover:bg-bg-subtle hover:text-fg" onClick={onReply} aria-label="Bu yanıta cevap ver"><Reply className="size-3.5" /></button></div> : null}
   </div>;
+}
+
+function ArtifactCard({ artifact }: { artifact: Artifact }) {
+  function download() {
+    if (typeof window === "undefined") return;
+    const blob = new Blob([artifact.content], { type: artifact.mime || "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = artifact.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  return <div className="rounded-xl border border-border bg-bg-subtle p-3"><div className="mb-2 flex items-center justify-between gap-3"><div className="min-w-0"><strong className="block truncate text-sm text-fg">{artifact.name}</strong><span className="text-[11px] text-muted">{artifact.mime}</span></div><button type="button" onClick={download} className="rounded-lg bg-bg-elevated px-2.5 py-1.5 text-xs text-fg hover:bg-border">İndir</button></div><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg-elevated p-3 text-xs leading-relaxed text-muted">{artifact.content}</pre></div>;
 }
 
 function MarkdownText({ value }: { value: string }) {

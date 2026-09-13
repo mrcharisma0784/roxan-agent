@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDown, ChevronUp, Eye, EyeOff, Plug, Sparkles, UserRound } from "lucide-react";
+import { CalendarClock, ChevronDown, ChevronUp, Eye, EyeOff, Plug, Sparkles, UserRound, Trash2, Users, Wrench, Store, Workflow } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,10 +24,20 @@ export function SettingsForm() {
   const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({});
   const [memories, setMemories] = useState<{ id?: string; title?: string; text: string }[]>([]);
   const [openMemory, setOpenMemory] = useState<string | null>(null);
+  const agentTasks = useRoxan((state) => state.agentTasks);
+  const setAgentTasks = useRoxan((state) => state.setAgentTasks);
+  const [taskPrompt, setTaskPrompt] = useState("");
+  const [taskRunAt, setTaskRunAt] = useState("");
 
   useEffect(() => {
     if (hydrated) setDraft(saved);
   }, [hydrated, saved]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const workspaceId = typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || "default" : "default";
+    fetch(`/api/tasks?workspaceId=${encodeURIComponent(workspaceId)}`).then(async (response) => response.ok ? (await response.json()) as { tasks?: any[] } : null).then((data) => { if (data?.tasks) setAgentTasks(data.tasks); }).catch(() => undefined);
+  }, [hydrated, setAgentTasks]);
 
   useEffect(() => {
     if (!hydrated || !saved.mem0ApiKey) return;
@@ -268,6 +278,78 @@ export function SettingsForm() {
           Kaydet
         </Button>
       </div>
+
+      <SettingsSection title="Background Agent" description="Uygulama açıkken planlanmış Agent görevlerini çalıştırır. Vercel cron bağlandığında uygulama kapalıyken de tetiklenebilir." icon={<CalendarClock className="size-4 text-muted" strokeWidth={1.7} />}>
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]"><Textarea value={taskPrompt} onChange={(event) => setTaskPrompt(event.target.value)} placeholder="Örn. Projeyi test et, hata varsa düzelt ve özetle." className="min-h-20 rounded-xl bg-bg-elevated px-4 py-3 text-sm shadow-border" /><div className="flex flex-col gap-2"><Input type="datetime-local" value={taskRunAt} onChange={(event) => setTaskRunAt(event.target.value)} className="w-full sm:w-56" /><Button type="button" disabled={!taskPrompt.trim() || !taskRunAt} onClick={async () => { const workspaceId = typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || "default" : "default"; const response = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", workspaceId, prompt: taskPrompt.trim(), runAt: new Date(taskRunAt).toISOString() }) }); if (response.ok) { const data = await response.json() as { task?: any }; if (data.task) setAgentTasks([...agentTasks, data.task]); setTaskPrompt(""); setTaskRunAt(""); toast("Agent görevi planlandı."); } else toast("Görev oluşturulamadı."); }}>Planla</Button></div></div>
+        {agentTasks.length ? <div className="flex flex-col gap-2">{agentTasks.map((task) => <div key={task.id} className="flex items-center gap-3 rounded-xl bg-bg-subtle p-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-fg">{task.prompt}</div><div className="mt-1 text-xs text-muted">{new Date(task.runAt).toLocaleString()}</div></div><Button type="button" variant="outline" size="iconSm" onClick={async () => { const workspaceId = task.workspaceId || "default"; await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete", workspaceId, taskId: task.id }) }); setAgentTasks(agentTasks.filter((item) => item.id !== task.id)); }} aria-label="Görevi sil"><Trash2 className="size-3.5" /></Button></div>)}</div> : <p className="m-0 text-xs text-muted">Henüz planlanmış görev yok.</p>}
+      </SettingsSection>
+      <SettingsSection
+        title="Multi-Agent"
+        description="Roxan görevleri explorer, coder, tester ve reviewer rollerine bölebilir."
+        icon={<Workflow className="size-4 text-muted" strokeWidth={1.7} />}
+      >
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <Textarea id="delegation-goal" placeholder="Örn. ödeme akışını incele, düzelt ve test et." className="min-h-20 rounded-xl bg-bg-subtle px-3 py-3 text-sm" />
+          <Button type="button" onClick={async () => {
+            const el = document.getElementById("delegation-goal") as HTMLTextAreaElement | null;
+            if (!el?.value.trim()) return;
+            const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delegate", goal: el.value.trim() }) });
+            toast(response.ok ? "Multi-Agent planı oluşturuldu." : "Delegation planı oluşturulamadı.");
+          }}>Plan oluştur</Button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Otonom bakım"
+        description="Workspace'i periyodik olarak kontrol eden bakım planları."
+        icon={<Wrench className="size-4 text-muted" strokeWidth={1.7} />}
+      >
+        <div className="grid gap-3">
+          <Input id="maintenance-prompt" placeholder="Örn. testleri çalıştır, kırılan noktaları düzelt ve raporla." />
+          <div className="flex items-center gap-2">
+            <Input id="maintenance-name" placeholder="Plan adı" className="flex-1" />
+            <Input id="maintenance-interval" type="number" min={60} defaultValue={1440} className="w-28" aria-label="Dakika" />
+            <Button type="button" onClick={async () => {
+              const prompt = (document.getElementById("maintenance-prompt") as HTMLInputElement | null)?.value.trim();
+              if (!prompt) return;
+              const workspaceId = typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || "default" : "default";
+              const name = (document.getElementById("maintenance-name") as HTMLInputElement | null)?.value.trim() || "Roxan Maintenance";
+              const intervalMinutes = Number((document.getElementById("maintenance-interval") as HTMLInputElement | null)?.value || 1440);
+              const response = await fetch("/api/maintenance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId, name, prompt, intervalMinutes }) });
+              toast(response.ok ? "Bakım planı kaydedildi." : "Bakım planı kaydedilemedi.");
+            }}>Kaydet</Button>
+          </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Skill Marketplace"
+        description="Kurulabilir yerleşik agent yetenekleri."
+        icon={<Store className="size-4 text-muted" strokeWidth={1.7} />}
+      >
+        <div className="grid gap-2 sm:grid-cols-2">
+          {["frontend", "backend", "testing", "devops", "research"].map((id) => (
+            <div key={id} className="flex items-center justify-between gap-2 rounded-xl bg-bg-subtle p-3">
+              <div><div className="text-sm font-medium text-fg">{id}</div><div className="text-xs text-muted">Built-in skill</div></div>
+              <Button type="button" variant="outline" size="sm" onClick={async () => { const workspaceId = typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || "default" : "default"; const response = await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "skill_install", id, workspaceId }) }); toast(response.ok ? `${id} skill yüklendi.` : `${id} yüklenemedi.`); }}>Yükle</Button>
+            </div>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Shared Workspace"
+        description="Workspace üyeleri ve roller için temel ekip alanı."
+        icon={<Users className="size-4 text-muted" strokeWidth={1.7} />}
+      >
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+          <Input id="member-name" placeholder="Üye adı" />
+          <Input id="member-email" placeholder="E-posta" />
+          <Button type="button" onClick={async () => { const name = (document.getElementById("member-name") as HTMLInputElement | null)?.value.trim(); if (!name) return; const workspaceId = typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || "default" : "default"; const response = await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "member_add", name, email: (document.getElementById("member-email") as HTMLInputElement | null)?.value.trim(), role: "viewer", workspaceId }) }); toast(response.ok ? "Workspace üyesi eklendi." : "Üye eklenemedi."); }}>Üye ekle</Button>
+        </div>
+        <p className="text-xs text-muted">Gerçek davet e-postası göndermek için e-posta/kimlik sağlayıcısı bağlantısı ayrıca gerekir.</p>
+      </SettingsSection>
+
       <SettingsSection
         title="Agent araçları"
         description="Modelin bu dağıtımda çağırabildiği tüm tool'lar."

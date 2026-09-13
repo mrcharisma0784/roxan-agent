@@ -25,6 +25,8 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
   const setWebSearchEnabled = useRoxan((state) => state.setWebSearchEnabled);
   const reasoningEnabled = useRoxan((state) => state.reasoningEnabled);
   const setReasoningEnabled = useRoxan((state) => state.setReasoningEnabled);
+  const researchMode = useRoxan((state) => state.researchMode);
+  const setResearchMode = useRoxan((state) => state.setResearchMode);
   const conversations = useRoxan((state) => state.conversations);
   const activeId = useRoxan((state) => state.activeConversationId);
   const streamingId = useRoxan((state) => state.streamingId);
@@ -102,7 +104,7 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
     const active = snapshot.conversations.find((item) => item.id === snapshot.activeConversationId);
     const history: { role: "user" | "assistant" | "system"; content: string | { type: "text" | "image_url"; text?: string; image_url?: { url: string } }[] }[] = (active?.messages ?? [])
       .filter((message) => message.id !== assistantId && (message.content.trim() || Boolean(message.attachments?.length)) && !message.error)
-      .map((message) => { const isCurrentUser = message.role === "user" && message.id === active?.messages.filter((item) => item.role === "user").at(-1)?.id; const attachmentsText = message.attachments?.map((attachment) => `Ek dosya: ${attachment.name}`).join("\n") || ""; const priorImages = active?.messages.filter((item) => item.role === "user").flatMap((item) => item.attachments || []).filter((attachment) => attachment.kind === "image" && attachment.dataUrl).slice(-3) || []; const imageContext = isCurrentUser && !message.attachments?.length && priorImages.length ? priorImages : message.attachments || []; const fileParts = (message.attachments || []).filter((attachment) => attachment.kind === "file" && attachment.dataUrl).map((attachment) => `Ekli dosya: ${attachment.name}\n${attachment.dataUrl}`); const imageParts = imageContext.filter((attachment) => attachment.kind === "image" && attachment.dataUrl).map((attachment) => ({ type: "image_url" as const, image_url: { url: attachment.dataUrl! } })); const text = message.content || (fileParts.length ? "Ekli dosyaları incele." : attachmentsText); const content = imageParts.length || fileParts.length ? [{ type: "text" as const, text: `${text}\n${attachmentsText}\n${fileParts.join("\n")}`.trim() }, ...imageParts] : text; return { role: message.role, content }; });
+      .map((message) => { const isCurrentUser = message.role === "user" && message.id === active?.messages.filter((item) => item.role === "user").at(-1)?.id; const attachmentsText = message.attachments?.map((attachment) => attachment.textContent ? `Ek dosya: ${attachment.name}\n${attachment.textContent.slice(0, 40000)}` : `Ek dosya: ${attachment.name}`).join("\n") || ""; const priorImages = active?.messages.filter((item) => item.role === "user").flatMap((item) => item.attachments || []).filter((attachment) => attachment.kind === "image" && attachment.dataUrl).slice(-3) || []; const imageContext = isCurrentUser && !message.attachments?.length && priorImages.length ? priorImages : message.attachments || []; const fileParts = (message.attachments || []).filter((attachment) => attachment.kind === "file" && !attachment.textContent && attachment.dataUrl).map((attachment) => `Ekli dosya: ${attachment.name}\n${attachment.dataUrl!.slice(0, 80000)}`); const imageParts = imageContext.filter((attachment) => attachment.kind === "image" && attachment.dataUrl).map((attachment) => ({ type: "image_url" as const, image_url: { url: attachment.dataUrl! } })); const text = message.content || (fileParts.length ? "Ekli dosyaları incele." : attachmentsText); const content = imageParts.length || fileParts.length ? [{ type: "text" as const, text: `${text}\n${attachmentsText}\n${fileParts.join("\n")}`.trim() }, ...imageParts] : text; return { role: message.role, content }; });
     const currentUser = history[history.length - 1];
     if (currentUser && attachments.length > 0) {
       currentUser.content = [
@@ -123,7 +125,7 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
         {
           settings: { ...snapshot.settings, model: workspaceMode ? snapshot.settings.modelProfiles.agenticModel : chatModelMode === "flash" ? snapshot.settings.modelProfiles.flashModel : snapshot.settings.modelProfiles.defaultModel },
           messages: history,
-          webSearchEnabled: snapshot.webSearchEnabled && hasFirecrawl(snapshot.settings),
+          webSearchEnabled: (snapshot.webSearchEnabled || snapshot.researchMode) && hasFirecrawl(snapshot.settings),
           reasoningEnabled:
             snapshot.reasoningEnabled && supportsReasoning(workspaceMode ? snapshot.settings.modelProfiles.agenticModel : chatModelMode === "flash" ? snapshot.settings.modelProfiles.flashModel : snapshot.settings.modelProfiles.defaultModel),
           workspaceMode,
@@ -151,6 +153,9 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
             });
           },
           onToolResult: (event) => {
+            const raw = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : null;
+            const artifact = raw?.data && typeof raw.data === "object" ? raw.data as Record<string, unknown> : raw;
+            if (event.toolId === "artifact_create" && artifact && typeof artifact.id === "string" && typeof artifact.content === "string") useRoxan.getState().addArtifact(assistantId, { id: artifact.id, name: String(artifact.name || "artifact"), mime: String(artifact.mime || "text/plain"), content: artifact.content, createdAt: String(artifact.createdAt || new Date().toISOString()), updatedAt: String(artifact.updatedAt || new Date().toISOString()) });
             useRoxan.getState().updateToolCall(assistantId, event.callId, {
               status: event.error ? "error" : "done",
               progress: 100,
@@ -229,9 +234,11 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
           </div>
         )}
       </div>
-      {showJumpToLatest ? <Button type="button" variant="outline" size="icon" className="absolute bottom-44 left-1/2 z-10 size-10 -translate-x-1/2 rounded-full bg-bg-elevated shadow-border-hover" onClick={jumpToLatest} aria-label="En yeni mesaja git"><ArrowDown className="size-4" /></Button> : null}
+      {showJumpToLatest ? <Button type="button" variant="outline" size="icon" className="absolute bottom-28 left-1/2 z-10 size-10 -translate-x-1/2 rounded-full bg-bg-elevated shadow-border-hover" onClick={jumpToLatest} aria-label="En yeni mesaja git"><ArrowDown className="size-4" /></Button> : null}
       {askQueue.length ? <AskPanel item={askQueue[0]} onAnswer={(answer) => void answerAsk(answer)} onSkip={() => void answerAsk("Atlandı.")} /> : null}
       <Composer
+        researchMode={researchMode}
+        onToggleResearch={setResearchMode}
         disabled={!hydrated}
         streaming={Boolean(streamingId)}
         webSearchEnabled={webSearchEnabled && firecrawlReady}
@@ -254,7 +261,7 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
 function AskPanel({ item, onAnswer, onSkip }: { item: { question: string; options: string[] }; onAnswer: (value: string) => void; onSkip: () => void }) {
   const [value, setValue] = useState("");
   return (
-    <div className="absolute bottom-44 left-1/2 z-20 w-[min(92vw,36rem)] -translate-x-1/2 rounded-2xl bg-bg-elevated p-3 shadow-border-hover">
+    <div className="absolute bottom-28 left-1/2 z-20 w-[min(92vw,36rem)] -translate-x-1/2 rounded-2xl bg-bg-elevated p-3 shadow-border-hover">
       <span className="absolute right-3 top-3 text-xs font-medium text-muted">1 of 1</span>
       <div className="mb-2 pr-12">
         <p className="m-0 min-w-0 text-sm leading-relaxed text-fg"><strong className="mr-1">Q:</strong>{item.question}</p>

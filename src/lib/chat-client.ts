@@ -8,6 +8,7 @@ export type ChatPayload = {
   workspaceMode?: boolean;
   chatModelMode?: "default" | "flash";
   workspaceId?: string;
+  researchMode?: boolean;
 };
 
 export type ToolCallEvent = {

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Personalization, RoxanSettings } from "@/store/roxan";
 import { runTool, summarizeArgs, summarizeResult, TOOL_SCHEMAS, type ToolResult } from "@/lib/roxan-tools.server";
+import { buildContext } from "@/lib/context-engine.server";
+import { dependencyLevels, executeWithRetry, type PlannedTool } from "@/lib/agent-runtime.server";
 
 export type ChatPayload = {
   settings: RoxanSettings;
@@ -21,6 +23,7 @@ type Incoming = {
   workspaceMode?: boolean;
   chatModelMode?: "default" | "flash";
   workspaceId?: string;
+  researchMode?: boolean;
 };
 type CfToolCall = { id?: string; type?: string; function?: { name?: string; arguments?: string } };
 type CfMessage = { role: string; content: string; tool_calls?: CfToolCall[]; tool_call_id?: string };
@@ -35,12 +38,7 @@ const REASONING_MODEL_PATTERNS = [/deepseek-r1/i, /qwq/i, /qwen.*(think|reason)/
 const WRITE_TOOLS = new Set(["file_create", "file_edit", "file_delete", "file_move", "dir_create", "dir_delete", "dir_move", "command_exec", "memory_add", "memory_edit", "memory_remove"]);
 const FILE_TOOLS = new Set(["file_read", "workspace_instructions_read", "explore", "dir_list"]);
 const WORKSPACE_MEMORY_TOOLS = new Set(["workspace_memory_recall", "workspace_memory_save", "workspace_memory_list"]);
-const TOOL_DEPENDENCIES: Record<string, string[]> = {
-  file_edit: ["file_read"], file_delete: ["file_read"], file_move: ["file_read"],
-  dir_move: ["dir_list"], dir_delete: ["dir_list"],
-  element_click: ["page_navigate", "dom_inspect"], form_type: ["page_navigate", "dom_inspect"], element_hover: ["page_navigate", "dom_inspect"],
-  page_scroll: ["page_navigate"], screenshot: ["page_navigate"], browser_vision: ["page_navigate"],
-};
+
 
 function sse(obj: unknown) { return `data: ${JSON.stringify(obj)}\n\n`; }
 function asRole(value: string | undefined): ChatRole | null { return value === "user" || value === "assistant" || value === "system" ? value : null; }
@@ -77,7 +75,7 @@ export function parseChatRequest(input: unknown): ChatPayload {
   if (!settings.model) throw new Error("Model gerekli. Ayarlar'dan bir sohbet modeli gir.");
   if (!settings.accountId || !settings.apiToken) throw new Error("Account ID ve API Token gerekli. Ayarlar sayfasından sohbet bağlantısını kaydet.");
   if (messages.length === 0) throw new Error("Mesaj boş olamaz.");
-  return { settings, messages, webSearchEnabled: body.webSearchEnabled === true, reasoningEnabled: body.reasoningEnabled === true && REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(settings.model)), workspaceMode: body.workspaceMode === true, chatModelMode: body.chatModelMode === "flash" ? "flash" : "default", workspaceId: body.workspaceId?.trim() || "default" };
+  return { settings, messages, webSearchEnabled: body.webSearchEnabled === true || body.researchMode === true, reasoningEnabled: body.reasoningEnabled === true && REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(settings.model)), workspaceMode: body.workspaceMode === true, chatModelMode: body.chatModelMode === "flash" ? "flash" : "default", workspaceId: body.workspaceId?.trim() || "default", researchMode: body.researchMode === true };
 }
 
 function chatUrl(accountId: string) { return `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`; }
@@ -92,7 +90,7 @@ function messageText(content: ChatPayload["messages"][number]["content"]) { retu
 function latestUserMessage(messages: ChatPayload["messages"]) { const message = [...messages].reverse().find((item) => item.role === "user"); return message ? messageText(message.content) : ""; }
 function isCasualMessage(content: string) { return /^(selam|merhaba|sa|hey|hello|hi|günaydın|iyi akşamlar|iyi geceler)[!.?,\s]*$/i.test(content.trim()); }
 function hasExplicitActionRequest(content: string) { return /(dosya|klasör|dizin|workspace|file|folder|directory|komut|command|terminal|script|oluştur|yaz|kaydet|oku|listele|sil|düzenle|değiştir|çalıştır|hafıza|hatırla|unut|memory|remember|forget|ara|search|ask|sor|seçenek|tercih|zip|arşiv|archive|indir|download|proje|tarayıcı|browser|web sitesi|ekran)/i.test(content); }
-function availableTools(messages: ChatPayload["messages"], webSearchEnabled: boolean, workspaceMode: boolean, hasAttachments = false) { const latest = latestUserMessage(messages); if (!latest || isCasualMessage(latest)) return []; const explicitAction = hasExplicitActionRequest(latest); if (!explicitAction && !webSearchEnabled && !workspaceMode) return []; const actionContext = explicitAction || workspaceMode || hasAttachments; return TOOL_SCHEMAS.filter((tool) => { const name = tool.function?.name || ""; if (name === "web_search") return webSearchEnabled; if (WORKSPACE_MEMORY_TOOLS.has(name) && !workspaceMode) return false; if (FILE_TOOLS.has(name) && !workspaceMode && !(hasAttachments && name === "file_read")) return false; if (!actionContext) return false; return true; }); }
+function availableTools(messages: ChatPayload["messages"], webSearchEnabled: boolean, workspaceMode: boolean, hasAttachments = false) { const latest = latestUserMessage(messages); if (!latest || isCasualMessage(latest)) return []; const explicitAction = hasExplicitActionRequest(latest); if (!explicitAction && !webSearchEnabled && !workspaceMode) return []; const actionContext = explicitAction || workspaceMode || hasAttachments; return TOOL_SCHEMAS.filter((tool) => { const name = tool.function?.name || ""; if (name === "web_search" || name === "deep_research") return webSearchEnabled; if (WORKSPACE_MEMORY_TOOLS.has(name) && !workspaceMode) return false; if (FILE_TOOLS.has(name) && !workspaceMode && !(hasAttachments && name === "file_read")) return false; if (!actionContext) return false; return true; }); }
 function normalizeAsk(question: string, rawOptions: string) { let cleanQuestion = question.trim(); const extracted: string[] = []; const optionPattern = /[\s,;]*(?:\(([1-9])\)|([1-9])[.)])\s+([^,;]+?)(?=\s*(?:,|;|\([1-9]\)|[1-9][.)]\s)|$)/g; let match: RegExpExecArray | null; while ((match = optionPattern.exec(cleanQuestion))) extracted.push(match[3].trim()); if (extracted.length >= 2) cleanQuestion = cleanQuestion.slice(0, cleanQuestion.search(/\s*(?:\([1-9]\)|[1-9][.)])\s*/)).trim().replace(/[,:;-]+$/, "?"); const supplied = rawOptions.split(/\s*\|\|\s*|\s*[,;]\s*/).map((item) => item.trim()).filter(Boolean); const options = [...extracted, ...supplied].filter((item, index, all) => item && all.indexOf(item) === index).slice(0, 3); return { question: cleanQuestion || "Hangi seçeneği tercih edersin?", options }; }
 function decodeDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/is);
@@ -135,9 +133,22 @@ function decodeAttachedText(content: CfMessage["content"]) {
 }
 
 
+
+function resolveAgentModel(payload: ChatPayload, messages: CfMessage[]) {
+  const latest = [...messages].reverse().find((m) => m.role === "user")?.content || "";
+  const text = latest.toLowerCase();
+  if (payload.workspaceMode) return payload.settings.modelProfiles.agenticModel;
+  if (messages.some((m) => typeof m.content !== "string" && Array.isArray(m.content) && m.content.some((p: any) => p?.type === "image_url"))) return payload.settings.modelProfiles.visionModel;
+  if (/kod|proje|repo|dosya|bug|hata|düzelt|fix|refactor|test|build|deploy|terminal/.test(text)) return payload.settings.modelProfiles.agenticModel;
+  if (payload.chatModelMode === "flash") return payload.settings.modelProfiles.flashModel;
+  return payload.settings.modelProfiles.defaultModel;
+}
+
 async function callChat(payload: ChatPayload, messages: CfMessage[], tools: typeof TOOL_SCHEMAS) {
   const source = messages.map((message) => ({ ...message, content: decodeAttachedText(message.content) }));
-  const body: Record<string, unknown> = { model: payload.settings.model, stream: false, max_tokens: 8192, ...(tools.length > 0 && payload.workspaceMode ? { tool_choice: "auto" } : {}), messages: [{ role: "system", content: buildSystemPrompt(payload.settings.personalization) }, ...source].slice(-25) };
+  const context = buildContext({ systemPrompt: buildSystemPrompt(payload.settings.personalization), messages: source, maxMessages: 24, maxChars: 70000 });
+  const routedModel = resolveAgentModel(payload, source);
+  const body: Record<string, unknown> = { model: routedModel, stream: false, max_tokens: 8192, ...(tools.length > 0 ? { tool_choice: "auto" } : {}), messages: context };
   if (tools.length > 0) body.tools = tools;
   if (payload.reasoningEnabled) body.reasoning_effort = "medium";
   const request = (accountId: string, apiToken: string, requestBody = body) => fetch(chatUrl(accountId), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` }, body: JSON.stringify(requestBody) });
@@ -173,21 +184,10 @@ async function enrichVision(payload: ChatPayload, messages: ChatPayload["message
   return messages.map((message) => ({ role: message.role, content: message === target ? `${messageText(message.content)}\n\n[Görsel analizi]\n${analysis}` : typeof message.content === "string" ? message.content : messageText(message.content) })) as CfMessage[];
 }
 
-function dependencyLevels(prepared: { callId: string; toolId: string }[]) {
-  const byTool = new Map<string, string[]>();
-  for (const item of prepared) byTool.set(item.toolId, [...(byTool.get(item.toolId) || []), item.callId]);
-  const levels: { callId: string; toolId: string }[][] = [];
-  const placed = new Set<string>();
-  let remaining = [...prepared];
-  while (remaining.length) {
-    const ready = remaining.filter((item) => (TOOL_DEPENDENCIES[item.toolId] || []).every((dep) => !byTool.has(dep) || byTool.get(dep)!.some((id) => placed.has(id))));
-    if (!ready.length) { levels.push(remaining); break; }
-    levels.push(ready);
-    ready.forEach((item) => placed.add(item.callId));
-    const ids = new Set(ready.map((x) => x.callId));
-    remaining = remaining.filter((item) => !ids.has(item.callId));
-  }
-  return levels;
+
+function shouldRetryResult(result: ToolResult) {
+  if (result.ok) return false;
+  return /timeout|timed out|network|fetch|429|5\d\d|temporar|econn|reset|busy/i.test(result.error || "");
 }
 
 export async function handleChat(request: Request): Promise<Response> {
@@ -199,6 +199,7 @@ export async function handleChat(request: Request): Promise<Response> {
     const attachmentText = Object.fromEntries(attachments.filter((item) => item.text !== undefined).map((item) => [item.name, item.text || ""]));
     const directFile = attachments.length > 0;
     let conversation = await enrichVision(payload, payload.messages);
+    if (payload.researchMode) conversation = [{ role: "system", content: "Deep Research modu aktiftir. Soruyu çok kaynaklı araştır; web_search/deep_research kullan, iddiaları kaynaklarla destekle, kaynakları cevap sonunda URL olarak listele ve kaynaklar arasında çelişki varsa belirt." }, ...conversation];
     if (attachments.length) {
       const names = attachments.map((item) => item.name).join(", ");
       conversation = [{ role: "system", content: `Bu sohbette kullanıcı tarafından eklenmiş dosyalar var: ${names}. Bu ekler geçici olarak bu istek bağlamında erişilebilir. Kullanıcı bir ek dosyayı okumak isterse file_read toolunu kullan; dosya workspace içinde bulunmasa bile ek bağlamından okunabilir.` }, ...conversation];
@@ -227,21 +228,35 @@ ${instructions.content}` }, ...conversation]; }
       await new Promise((resolve) => setTimeout(resolve, 0));
       const byId = new Map(prepared.map((item) => [item.callId, item]));
       const completed = new Map<string, ToolResult>();
-      for (const level of dependencyLevels(prepared)) {
-        const levelResults = await Promise.all(level.map(async ({ callId }) => {
-          const item = byId.get(callId);
-          const toolId = item?.toolId || "api_request";
-          const args = item?.args || {};
-          send({ type: "tool_progress", callId, toolId, progress: 5, detail: "Starting" });
-          try {
-            const result = await runTool(toolId, args, { firecrawlApiKey: payload.settings.firecrawlApiKey, mem0ApiKey: payload.settings.mem0ApiKey, workspaceMode: payload.workspaceMode, workspaceId: payload.workspaceId, attachments: attachmentText, visionAccountId: payload.settings.visionAccountId || payload.settings.accountId, visionApiToken: payload.settings.visionApiToken || payload.settings.apiToken, visionModel: payload.settings.modelProfiles.visionModel, reportProgress: (detail, data) => send({ type: "tool_progress", callId, toolId, detail, progress: 55, data }) });
-            send({ type: "tool_progress", callId, toolId, progress: result.ok ? 92 : 85, detail: summarizeResult(result) || "Processing" });
-            return [callId, result] as const;
-          } catch (error) { return [callId, { ok: false, error: error instanceof Error ? error.message : String(error) } as ToolResult] as const; }
-        }));
-        for (const [callId, result] of levelResults) { completed.set(callId, result); send({ type: "tool_progress", callId, toolId: byId.get(callId)?.toolId || "", progress: 100, detail: summarizeResult(result) || "Completed" }); }
+      const planned = prepared.map(({ callId, toolId, args }) => ({ callId, toolId, args })) as PlannedTool[];
+      let levels: PlannedTool[][];
+      try { levels = dependencyLevels(planned); } catch (error) {
+        send({ type: "error", message: error instanceof Error ? error.message : "Tool dependency planı oluşturulamadı." });
+        controller.close(); return;
       }
-      for (const { callId, toolId } of prepared) { const result = completed.get(callId) || { ok: false, error: "Tool sonucu alınamadı." }; if (toolId === "ask" && result.ok) { const askData = result.data as { question?: string; options?: string } | undefined; const normalized = normalizeAsk(askData?.question || "Bir tercih belirtir misin?", askData?.options || ""); const options = normalized.options.length ? normalized.options : ["Varsayılan seçeneği kullan", "Daha sonra karar ver", "Özel bir tercih belirteceğim"]; send({ type: "ask", question: normalized.question, options: options.slice(0, 3) }); send({ type: "tool_result", callId, toolId, error: false, detail: "Kullanıcı yanıtı bekleniyor", data: result }); send({ type: "done" }); controller.close(); return; } send({ type: "tool_result", callId, toolId, error: !result.ok, detail: summarizeResult(result), data: result }); conversation.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(result) }); }
+      for (const level of levels) {
+        const levelResults = await Promise.all(level.map(async (item) => {
+          const { callId, toolId, args } = item;
+          const started = Date.now();
+          send({ type: "tool_progress", callId, toolId, progress: 5, detail: "Starting", data: { stage: "start" } });
+          try {
+            const executed = await executeWithRetry(toolId, async (attempt) => {
+              const result = await runTool(toolId, args, { firecrawlApiKey: payload.settings.firecrawlApiKey, mem0ApiKey: payload.settings.mem0ApiKey, workspaceMode: payload.workspaceMode, workspaceId: payload.workspaceId, attachments: attachmentText, visionAccountId: payload.settings.visionAccountId || payload.settings.accountId, visionApiToken: payload.settings.visionApiToken || payload.settings.apiToken, visionModel: payload.settings.modelProfiles.visionModel, reportProgress: (detail, data) => send({ type: "tool_progress", callId, toolId, detail, progress: Math.max(25, data && typeof data === "object" && typeof (data as any).progress === "number" ? (data as any).progress : 55), data: { ...(data && typeof data === "object" ? data : {}), stage: "running", elapsedMs: Date.now() - started, attempt } }) });
+              if (!result.ok && shouldRetryResult(result)) throw new Error(result.error || "Tool başarısız.");
+              return result;
+            }, (update) => send({ type: "tool_progress", callId, toolId, progress: update.progress, detail: update.detail, data: { stage: update.retrying ? "retry" : "running", attempt: update.attempt } }));
+            const result = executed.result;
+            send({ type: "tool_progress", callId, toolId, progress: result.ok ? 92 : 85, detail: result.ok ? summarizeResult(result) || "Processing" : result.error || "Failed", data: { stage: result.ok ? "finalizing" : "failed", attempts: executed.attempts, elapsedMs: Date.now() - started } });
+            return [callId, result] as const;
+          } catch (error) {
+            const result = { ok: false, error: error instanceof Error ? error.message : String(error) } as ToolResult;
+            send({ type: "tool_progress", callId, toolId, progress: 100, detail: result.error || "Failed", data: { stage: "failed", elapsedMs: Date.now() - started } });
+            return [callId, result] as const;
+          }
+        }));
+        for (const [callId, result] of levelResults) { completed.set(callId, result); send({ type: "tool_progress", callId, toolId: byId.get(callId)?.toolId || "", progress: 100, detail: summarizeResult(result) || (result.ok ? "Completed" : "Failed"), data: { stage: result.ok ? "complete" : "failed" } }); }
+      }
+      for (const { callId, toolId } of prepared) { const result = completed.get(callId) || { ok: false, error: "Tool sonucu alınamadı." }; if (!result.ok) conversation.push({ role: "system", content: `Tool ${toolId} başarısız oldu. Bu sonucu gerçek bir başarısızlık olarak kabul et. Gerekirse hatayı teşhis et, alternatif bir yol seç veya güvenli biçimde yeniden dene. Hatanın üstünü kapatma: ${String(result.error || "bilinmeyen hata").slice(0, 1200)}` }); if (toolId === "ask" && result.ok) { const askData = result.data as { question?: string; options?: string } | undefined; const normalized = normalizeAsk(askData?.question || "Bir tercih belirtir misin?", askData?.options || ""); const options = normalized.options.length ? normalized.options : ["Varsayılan seçeneği kullan", "Daha sonra karar ver", "Özel bir tercih belirteceğim"]; send({ type: "ask", question: normalized.question, options: options.slice(0, 3) }); send({ type: "tool_result", callId, toolId, error: false, detail: "Kullanıcı yanıtı bekleniyor", data: result }); send({ type: "done" }); controller.close(); return; } send({ type: "tool_result", callId, toolId, error: !result.ok, detail: summarizeResult(result), data: result }); conversation.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(result) }); }
     }
     send({ type: "error", message: "Tool kullanım sınırına ulaşıldı; isteği daha küçük adımlara bölebilirsin." }); controller.close();
   } catch (error) { send({ type: "error", message: error instanceof Error ? error.message : "Beklenmeyen hata." }); controller.close(); } } });

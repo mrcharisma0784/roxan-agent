@@ -103,6 +103,10 @@
   .build-composer-bar {
     width: min(42rem, calc(100% - 2rem));
   }
+
+  .composer-dock {
+    width: min(42rem, calc(100% - 2rem));
+  }
 }
 
 @keyframes rise-in {

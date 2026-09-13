@@ -35,6 +35,14 @@ import {
   SquareTerminal,
   Database,
   Eye,
+  FileOutput,
+  FlaskConical,
+  CalendarClock,
+  Users,
+  Workflow,
+  Wrench,
+  Store,
+  Layers3,
 } from "lucide-react";
 
 export type ToolDef = {
@@ -112,6 +120,13 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { id: "page_scroll", icon: ArrowDownUp, active: "Page Scrolling", done: "Page Scrolled" },
       { id: "dom_inspect", icon: Code2, active: "DOM Inspecting", done: "DOM Inspected" },
       { id: "screenshot", icon: Camera, active: "Screenshot Capturing", done: "Screenshot Captured" },
+      { id: "browser_back", icon: ArrowDownUp, active: "Going Back", done: "Went Back" },
+      { id: "browser_forward", icon: ArrowDownUp, active: "Going Forward", done: "Went Forward" },
+      { id: "browser_reload", icon: Route, active: "Reloading Page", done: "Page Reloaded" },
+      { id: "browser_tab_open", icon: Globe, active: "Opening Tab", done: "Tab Opened" },
+      { id: "browser_tab_close", icon: Globe, active: "Closing Tab", done: "Tab Closed" },
+      { id: "browser_tab_switch", icon: Globe, active: "Switching Tab", done: "Tab Switched" },
+      { id: "browser_tabs", icon: Globe, active: "Listing Tabs", done: "Tabs Listed" },
       { id: "browser_vision", icon: Eye, active: "Vision Analyzing", done: "Vision Analyzed" },
     ],
   },
@@ -143,6 +158,9 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { id: "workspace_memory_recall", icon: Database, active: "Workspace Memory Reading", done: "Workspace Memory Read" },
       { id: "workspace_memory_save", icon: Database, active: "Workspace Memory Saving", done: "Workspace Memory Saved" },
       { id: "workspace_memory_list", icon: Database, active: "Workspace Memory Listing", done: "Workspace Memory Listed" },
+      { id: "workspace_checkpoint_create", icon: Database, active: "Checkpoint Creating", done: "Checkpoint Created" },
+      { id: "workspace_checkpoint_list", icon: Database, active: "Checkpoint Listing", done: "Checkpoints Listed" },
+      { id: "workspace_checkpoint_restore", icon: Database, active: "Checkpoint Restoring", done: "Checkpoint Restored" },
     ],
   },
   {
@@ -153,7 +171,39 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { id: "deploy", icon: Rocket, active: "Deploying", done: "Deployed" },
     ],
   },
+  {
+    num: "11",
+    label: "P2: Araştırma, Artifact ve Otomasyon",
+    tools: [
+      { id: "deep_research", icon: FlaskConical, active: "Deep Researching", done: "Deep Research Completed" },
+      { id: "artifact_create", icon: FileOutput, active: "Creating Artifact", done: "Artifact Created" },
+      { id: "artifact_list", icon: FileOutput, active: "Listing Artifacts", done: "Artifacts Listed" },
+      { id: "agent_task_create", icon: CalendarClock, active: "Scheduling Agent", done: "Agent Scheduled" },
+      { id: "agent_task_list", icon: CalendarClock, active: "Listing Agent Tasks", done: "Agent Tasks Listed" },
+      { id: "agent_task_delete", icon: CalendarClock, active: "Deleting Agent Task", done: "Agent Task Deleted" },
+      { id: "agent_delegate", icon: Workflow, active: "Delegating Agents", done: "Agents Delegated" },
+      { id: "agent_job_create", icon: Workflow, active: "Creating Long Job", done: "Long Job Created" },
+      { id: "agent_job_list", icon: Workflow, active: "Listing Long Jobs", done: "Long Jobs Listed" },
+      { id: "agent_job_cancel", icon: Workflow, active: "Cancelling Long Job", done: "Long Job Cancelled" },
+      { id: "maintenance_plan_create", icon: Wrench, active: "Creating Maintenance Plan", done: "Maintenance Plan Created" },
+      { id: "maintenance_plan_list", icon: Wrench, active: "Listing Maintenance Plans", done: "Maintenance Plans Listed" },
+      { id: "maintenance_plan_delete", icon: Wrench, active: "Deleting Maintenance Plan", done: "Maintenance Plan Deleted" },
+    ],
+  },
+  {
+    num: "12",
+    label: "P3: Agent Ecosystem",
+    tools: [
+      { id: "skill_catalog", icon: Store, active: "Loading Skill Catalog", done: "Skill Catalog Loaded" },
+      { id: "skill_install", icon: Layers3, active: "Installing Skill", done: "Skill Installed" },
+      { id: "skill_uninstall", icon: Layers3, active: "Removing Skill", done: "Skill Removed" },
+      { id: "workspace_members", icon: Users, active: "Loading Workspace Members", done: "Workspace Members Loaded" },
+      { id: "workspace_member_add", icon: Users, active: "Adding Workspace Member", done: "Workspace Member Added" },
+      { id: "workspace_member_remove", icon: Users, active: "Removing Workspace Member", done: "Workspace Member Removed" },
+    ],
+  },
 ];
+
 
 export const ALL_TOOLS = TOOL_CATEGORIES.flatMap((category) => category.tools);
 
