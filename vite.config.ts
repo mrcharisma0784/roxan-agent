@@ -178,6 +178,9 @@ export default defineConfig(({ command, isPreview }) => ({
           }),
         ]
       : []),
-    viteReact(),
+    // TanStack Start's SSR bundle can inherit NODE_ENV=development from the
+    // Vercel build runner. Classic JSX keeps server output compatible with
+    // React's production runtime instead of emitting jsxDEV calls.
+    viteReact({ jsxRuntime: "classic" }),
   ],
 }));
