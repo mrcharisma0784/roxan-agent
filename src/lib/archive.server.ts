@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { unzipSync, zipSync } from "fflate";
+import { BUILD_AGENT_MD, isLegacyGeneratedAgent } from "@/lib/build-agent-instructions";
 
 const EXCLUDED = new Set(["node_modules", ".git", "output"]);
 
@@ -14,11 +15,20 @@ function safeRelative(value: string) {
 
 async function collectFiles(root: string, current: string, entries: Record<string, Uint8Array>) {
   for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-    if (EXCLUDED.has(entry.name) || entry.name.startsWith(".")) continue;
+    if (EXCLUDED.has(entry.name)) continue;
     const absolute = path.join(current, entry.name);
     const relative = safeRelative(path.relative(root, absolute));
-    if (entry.isDirectory()) await collectFiles(root, absolute, entries);
-    else if (entry.isFile()) entries[relative] = new Uint8Array(await fs.readFile(absolute));
+    if (entry.isFile() && relative === "AGENT.md") {
+      const content = await fs.readFile(absolute, "utf8").catch(() => "");
+      if (content === BUILD_AGENT_MD || isLegacyGeneratedAgent(content)) continue;
+    }
+    if (entry.isDirectory()) {
+      // Preserve empty folders and directory structure in the archive.
+      entries[`${relative}/`] = new Uint8Array();
+      await collectFiles(root, absolute, entries);
+    } else if (entry.isFile()) {
+      entries[relative] = new Uint8Array(await fs.readFile(absolute));
+    }
   }
 }
 

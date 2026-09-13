@@ -35,6 +35,7 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [replyTo, setReplyTo] = useState<{ id: string; content: string } | null>(null);
   const [askQueue, setAskQueue] = useState<{ question: string; options: string[] }[]>([]);
+  const askFlowRef = useRef<{ userMessageId: string | null; pairs: { question: string; answer: string }[] }>({ userMessageId: null, pairs: [] });
 
   const conversation = conversations.find((item) => item.id === activeId) ?? conversations[0];
   const messages = conversation?.messages ?? [];
@@ -73,8 +74,8 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
     return () => window.removeEventListener("roxan:build-submit", handleBuildSubmit);
   });
 
-  async function send(content: string, attachments: ComposerAttachment[] = [], workspaceMode = buildMode) {
-    if (content.trim().toLowerCase() === "/ask") { setAskQueue((queue) => [...queue, { question: "Projenin hedef kitlesi kim?", options: ["Bireysel kullanıcılar", "Küçük işletmeler", "Kurumsal ekipler"] }]); return; }
+  async function send(content: string, attachments: ComposerAttachment[] = [], workspaceMode = buildMode, existingUserMessageId: string | null = null) {
+    if (content.trim().toLowerCase() === "/ask") { askFlowRef.current = { userMessageId: null, pairs: [] }; setAskQueue((queue) => [...queue, { question: "Projenin hedef kitlesi kim?", options: ["Bireysel kullanıcılar", "Küçük işletmeler", "Kurumsal ekipler"] }]); return; }
     if (!configured) {
       toast("Önce ayarlardan bağlantıyı tamamla.");
       void navigate({ to: "/settings" });
@@ -93,7 +94,10 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
 
     const resolvedWorkspaceId = workspaceMode ? (conversation?.workspaceId || (initialPrompt && typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || workspaceId : workspaceId)) : undefined;
     if (workspaceMode && typeof window !== "undefined") window.localStorage.setItem("roxan-build-workspace", resolvedWorkspaceId || "project");
-    const { assistantId } = useRoxan.getState().startTurn(content, attachments.map(({ name, kind, type, dataUrl }) => ({ name, kind, type, dataUrl })), replyTo || undefined, workspaceMode ? "build" : "chat", resolvedWorkspaceId);
+    const store = useRoxan.getState();
+    const { assistantId } = existingUserMessageId
+      ? (store.updateMessageContent(existingUserMessageId, content), store.startAssistantTurn(existingUserMessageId, workspaceMode ? "build" : "chat", resolvedWorkspaceId))
+      : store.startTurn(content, attachments.map(({ name, kind, type, dataUrl }) => ({ name, kind, type, dataUrl })), replyTo || undefined, workspaceMode ? "build" : "chat", resolvedWorkspaceId);
     const snapshot = useRoxan.getState();
     const active = snapshot.conversations.find((item) => item.id === snapshot.activeConversationId);
     const history: { role: "user" | "assistant" | "system"; content: string | { type: "text" | "image_url"; text?: string; image_url?: { url: string } }[] }[] = (active?.messages ?? [])
@@ -149,18 +153,39 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
         controller.signal,
       );
       useRoxan.getState().finishTurn(assistantId);
+      return assistantId;
     } catch (error) {
       if (controller.signal.aborted) {
         useRoxan.getState().finishTurn(assistantId);
-        return;
+        return assistantId;
       }
       const message = error instanceof Error ? error.message : "Yanıt alınamadı.";
       if (/failed to fetch|networkerror|network error|load failed/i.test(message)) {
         useRoxan.getState().finishTurn(assistantId);
         toast("Bağlantı kesildi; mesajını tekrar göndererek devam edebilirsin.");
-        return;
+        return assistantId;
       }
       useRoxan.getState().failTurn(assistantId, message);
+      return assistantId;
+    }
+  }
+
+  async function answerAsk(answer: string) {
+    const item = askQueue[0];
+    if (!item) return;
+    const flow = askFlowRef.current;
+    flow.pairs = [...flow.pairs, { question: item.question, answer }];
+    const transcript = flow.pairs.map((pair) => `Q: ${pair.question}\nA: ${pair.answer}`).join("\n");
+    setAskQueue((queue) => queue.slice(1));
+    const assistantId = await send(transcript, [], buildMode, flow.userMessageId);
+    if (!flow.userMessageId) {
+      const state = useRoxan.getState();
+      const active = state.conversations.find((item) => item.id === state.activeConversationId);
+      const user = [...(active?.messages || [])].reverse().find((message) => message.role === "user" && message.content === transcript);
+      flow.userMessageId = user?.id || null;
+    }
+    if (!askQueue.length && assistantId) {
+      // Keep the completed Q/A transcript as the single visible user message.
     }
   }
 
@@ -194,7 +219,7 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
         )}
       </div>
       {showJumpToLatest ? <Button type="button" variant="outline" size="icon" className="absolute bottom-44 left-1/2 z-10 size-10 -translate-x-1/2 rounded-full bg-bg-elevated shadow-border-hover" onClick={jumpToLatest} aria-label="En yeni mesaja git"><ArrowDown className="size-4" /></Button> : null}
-      {askQueue.length ? <AskPanel item={askQueue[0]} onAnswer={(answer) => { setAskQueue((queue) => queue.slice(1)); void send(answer, [], buildMode); }} onSkip={() => setAskQueue((queue) => queue.slice(1))} position={askQueue.length} /> : null}
+      {askQueue.length ? <AskPanel item={askQueue[0]} onAnswer={(answer) => void answerAsk(answer)} onSkip={() => void answerAsk("Atlandı.")} /> : null}
       <Composer
         disabled={!hydrated}
         streaming={Boolean(streamingId)}
@@ -215,7 +240,24 @@ export function ChatView({ buildMode = false, initialPrompt, initialAttachments 
   );
 }
 
-function AskPanel({ item, onAnswer, onSkip, position }: { item: { question: string; options: string[] }; onAnswer: (value: string) => void; onSkip: () => void; position: number }) { const [value, setValue] = useState(""); return <div className="absolute bottom-44 left-1/2 z-20 w-[min(92vw,36rem)] -translate-x-1/2 rounded-2xl bg-bg-elevated p-3 shadow-border-hover"><div className="mb-2 flex items-start gap-3"><span className="shrink-0 text-xs text-muted">{1} of {position}</span><p className="m-0 min-w-0 flex-1 text-sm leading-relaxed text-fg"><strong className="mr-1">Q:</strong>{item.question}</p></div>{item.options.length ? <div className="mb-2 flex flex-col gap-1.5">{item.options.map((option, index) => <button type="button" key={`${option}-${index}`} className="rounded-xl bg-bg-subtle px-3 py-2 text-left text-xs text-fg hover:bg-border" onClick={() => onAnswer(option)}>{index + 1}) {option}</button>)}</div> : null}<form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); if (value.trim()) { onAnswer(value.trim()); setValue(""); } }}><input value={value} onChange={(event) => setValue(event.target.value)} placeholder="Kendi yanıtını yaz" className="min-w-0 flex-1 rounded-xl bg-bg-subtle px-3 py-2 text-sm text-fg outline-none" /><Button type="submit" size="sm">Gönder</Button><Button type="button" variant="outline" size="sm" onClick={onSkip}>Atla</Button></form></div>; }
+function AskPanel({ item, onAnswer, onSkip }: { item: { question: string; options: string[] }; onAnswer: (value: string) => void; onSkip: () => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <div className="absolute bottom-44 left-1/2 z-20 w-[min(92vw,36rem)] -translate-x-1/2 rounded-2xl bg-bg-elevated p-3 shadow-border-hover">
+      <span className="absolute right-3 top-3 text-xs font-medium text-muted">1 of 1</span>
+      <div className="mb-2 pr-12">
+        <p className="m-0 min-w-0 text-sm leading-relaxed text-fg"><strong className="mr-1">Q:</strong>{item.question}</p>
+      </div>
+      {item.options.length ? <div className="mb-2 flex flex-col gap-1.5">{item.options.map((option, index) => <button type="button" key={`${option}-${index}`} className="rounded-xl bg-bg-subtle px-3 py-2 text-left text-xs text-fg hover:bg-border" onClick={() => onAnswer(option)}>{index + 1}) {option}</button>)}</div> : null}
+      <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); if (value.trim()) { onAnswer(value.trim()); setValue(""); } }}>
+        <input value={value} onChange={(event) => setValue(event.target.value)} placeholder="Kendi yanıtını yaz" className="min-w-0 flex-1 rounded-xl bg-bg-subtle px-3 py-2 text-sm text-fg outline-none" />
+        <Button type="submit" size="sm">Gönder</Button>
+        <Button type="button" variant="outline" size="sm" onClick={onSkip}>Atla</Button>
+      </form>
+    </div>
+  );
+}
+
 function EmptyState({ configured, ready }: { configured: boolean; ready: boolean }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 pb-8 text-center">

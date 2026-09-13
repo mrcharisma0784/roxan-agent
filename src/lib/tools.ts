@@ -28,6 +28,7 @@ import {
   PenLine,
   Plug,
   Rocket,
+  FolderArchive,
   Route,
   ScanSearch,
   Search,
@@ -91,6 +92,15 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
   },
   {
     num: "05",
+    label: "Arşivleme",
+    tools: [
+      { id: "zip_create", icon: FolderArchive, active: "ZIP Creating", done: "ZIP Created" },
+      { id: "zip_extract", icon: FolderArchive, active: "ZIP Extracting", done: "ZIP Extracted" },
+      { id: "project_archive", icon: FolderArchive, active: "Project Archiving", done: "Project Archived" },
+    ],
+  },
+  {
+    num: "06",
     label: "Tarayıcı ve Web Kullanımı",
     tools: [
       { id: "page_navigate", icon: Compass, active: "Page Navigating", done: "Page Navigated" },
@@ -103,17 +113,16 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     ],
   },
   {
-    num: "06",
+    num: "07",
     label: "Biliş ve İletişim",
     tools: [
       { id: "reasoning", icon: Brain, active: "Reasoning", done: "Reasoned" },
       { id: "planning", icon: Route, active: "Planning", done: "Planned" },
-      { id: "asking", icon: MessageCircleQuestion, active: "Asking", done: "Asked" },
       { id: "ask", icon: MessageCircleQuestion, active: "Soru hazırlanıyor", done: "Soru hazır" },
     ],
   },
   {
-    num: "07",
+    num: "08",
     label: "Beceri Yönetimi",
     tools: [
       { id: "skills_load", icon: PackagePlus, active: "Skills Loading", done: "Skills Loaded" },
@@ -121,7 +130,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     ],
   },
   {
-    num: "08",
+    num: "09",
     label: "Hafıza Yönetimi",
     tools: [
       { id: "memory_add", icon: CirclePlus, active: "Memory Adding", done: "Memory Added" },
@@ -131,7 +140,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     ],
   },
   {
-    num: "09",
+    num: "10",
     label: "Entegrasyon ve API",
     tools: [
       { id: "api_request", icon: Plug, active: "API Requesting", done: "API Requested" },

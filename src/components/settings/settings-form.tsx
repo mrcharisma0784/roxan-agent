@@ -267,6 +267,30 @@ export function SettingsForm() {
           Kaydet
         </Button>
       </div>
+      <SettingsSection
+        title="Agent araçları"
+        description="Modelin bu dağıtımda çağırabildiği tüm tool'lar."
+        icon={<Plug className="size-4 text-muted" strokeWidth={1.7} />}
+      >
+        <div className="flex flex-col gap-4">
+          {TOOL_CATEGORIES.map((category) => (
+            <div key={category.num} className="flex flex-col gap-1.5">
+              <p className="text-[11px] font-semibold tracking-widest text-muted uppercase">{category.num} · {category.label}</p>
+              <div className="grid gap-1 sm:grid-cols-2">
+                {category.tools.map((tool) => {
+                  const Icon = tool.icon;
+                  return (
+                    <div key={tool.id} className="flex min-w-0 items-center gap-2 rounded-lg bg-bg-subtle px-2.5 py-2 text-xs text-muted">
+                      <Icon className="size-3.5 shrink-0" strokeWidth={1.7} />
+                      <span className="min-w-0 truncate text-fg">{tool.id}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SettingsSection>
     </form>
   );
 }
