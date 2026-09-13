@@ -1,6 +1,5 @@
 import { exec } from "node:child_process";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -132,6 +131,7 @@ export const TOOL_SCHEMAS = [
   fn("skills_unload", "Bir workspace yeteneğini devre dışı bırak.", { type: "object", properties: { name: { type: "string" } }, required: ["name"] }),
   fn("api_request", "Yapılandırılmış harici API isteği hazırlamak için kullan.", { type: "object", properties: { url: { type: "string" }, method: { type: "string" } }, required: ["url"] }),
   fn("deploy", "Deploy öncesi yapılandırmayı kontrol et; kullanıcı açıkça istemeden yayınlama.", { type: "object", properties: { target: { type: "string" } }, required: ["target"] }),
+  fn("project_archive", "Workspace projesini ZIP olarak paketle ve kullanıcıya indirilebilir çıktı ver.", { type: "object", properties: { filename: { type: "string" } } }),
   fn(
     "web_search",
     "Firecrawl ile web'de ara. Yalnızca güncel, harici veya kesin bilinmeyen bilgileri doğrulamak için kullan.",
@@ -141,7 +141,7 @@ export const TOOL_SCHEMAS = [
       required: ["query"],
     },
   ),
-  fn("ask", "Kullanıcıdan eksik bir bilgiyi form ile sor. question alanına yalnızca soru cümlesini yaz; seçenekleri soru metnine ekleme. options alanına en fazla üç kısa seçeneği || ile ayırarak yaz.", { type: "object", properties: { question: { type: "string", description: "Yalnızca soru cümlesi; (1) seçenek gibi seçenekleri buraya yazma." }, options: { type: "string", description: "En fazla üç seçenek; yalnızca seçenek etiketlerini || ile ayır. Örnek: Genel görünüm || Teknik kalite || Duygusal etki" } }, required: ["question"] }),
+  fn("ask", "Kullanıcıdan eksik bir bilgiyi form ile sor. question alanına yalnızca soru cümlesini yaz; seçenekleri soru metnine ekleme. options alanına en fazla üç kısa seçeneği || ile ayırarak yaz.", { type: "object", properties: { question: { type: "string", description: "Yalnızca soru cümlesi; seçenekleri buraya yazma." }, options: { type: "string", description: "En fazla üç seçenek; yalnızca seçenek etiketlerini || ile ayır." } }, required: ["question"] }),
   fn("memory_add", "Kullanıcı açıkça hatırlamamı istediğinde bilgiyi Mem0 hafızasına kaydet.", {
     type: "object",
     properties: {
@@ -179,8 +179,8 @@ async function getWorkdir(workspaceMode = false, workspaceId = "default") {
   const cacheKey = `${workspaceMode}:${safeId}`;
   const cached = resolvedWorkdirs.get(cacheKey);
   if (cached) return cached;
-  const workspaceRoot = process.env.ROXAN_WORKSPACES_ROOT || path.join(os.tmpdir(), "roxan-workspaces");
-  const candidates = (workspaceMode ? [path.join(workspaceRoot, safeId), process.env.ROXAN_WORKDIR, path.join(os.tmpdir(), "roxan-workspaces", safeId)] : [process.env.HOME, os.tmpdir()]).filter(
+  const workspaceRoot = process.env.ROXAN_WORKSPACES_ROOT || path.join(process.env.TMPDIR || process.env.TMP || "/tmp", "roxan-workspaces");
+  const candidates = (workspaceMode ? [path.join(workspaceRoot, safeId), process.env.ROXAN_WORKDIR, path.join(process.cwd(), "workspaces", safeId)] : [process.env.HOME, "/tmp"]).filter(
     (value): value is string => Boolean(value),
   );
 
@@ -377,6 +377,7 @@ export async function runTool(
     case "planning": case "reasoning": case "skills_load": case "skills_unload": { return { ok: true, message: `${name} tamamlandı.`, data: args }; }
     case "api_request": { return { ok: false, error: "API isteği için güvenli connector yapılandırılmamış." }; }
     case "deploy": { return { ok: false, error: "Deploy connector yapılandırılmadan yayınlama yapılamaz." }; }
+    case "project_archive": { const base = asString(args.filename, "roxan-project").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/\.zip$/i, ""); const filename = `${base || "roxan-project"}.zip`; const outputDir = path.join(workdir, "output"); await fs.mkdir(outputDir, { recursive: true }); await execAsync(`zip -qr ${JSON.stringify(path.join(outputDir, filename))} . -x "node_modules/*" ".git/*" "output/*"`, { cwd: workdir, timeout: 30_000 }); return { ok: true, message: "Proje ZIP çıktısı hazır.", data: { filename, outputPath: `output/${filename}`, downloadUrl: `/api/project?download=1&workspaceId=${encodeURIComponent(credentials.workspaceId || "default")}&filename=${encodeURIComponent(filename)}` } }; }
     case "web_search": {
       if (!credentials.firecrawlApiKey) {
         return { ok: false, error: "Firecrawl API anahtarı yapılandırılmamış. Ayarlar'dan FireCrawl key ekle." };

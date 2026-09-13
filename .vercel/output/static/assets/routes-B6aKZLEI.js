@@ -1,0 +1,1 @@
+import{t as e}from"./chat-view-B7encHYL.js";import{u as t}from"./index-ButqU6zd.js";var n=t(),r=`/home/ubuntu/roxan-agent-v2/src/routes/index.tsx?tsr-split=component`;function i(){return(0,n.jsxDEV)(e,{},void 0,!1,{fileName:r,lineNumber:3,columnNumber:10},this)}export{i as component};

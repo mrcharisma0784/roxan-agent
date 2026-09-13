@@ -89,21 +89,16 @@ export function ChatView({ buildMode = false, initialPrompt }: { buildMode?: boo
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const { assistantId } = useRoxan.getState().startTurn(content, attachments.map(({ name, kind, type }) => ({ name, kind, type })), replyTo || undefined);
+    const { assistantId } = useRoxan.getState().startTurn(content, attachments.map(({ name, kind, type, dataUrl }) => ({ name, kind, type, dataUrl })), replyTo || undefined, workspaceMode ? "build" : "chat");
     const snapshot = useRoxan.getState();
     const active = snapshot.conversations.find((item) => item.id === snapshot.activeConversationId);
     const history: { role: "user" | "assistant" | "system"; content: string | { type: "text" | "image_url"; text?: string; image_url?: { url: string } }[] }[] = (active?.messages ?? [])
       .filter((message) => message.id !== assistantId && (message.content.trim() || Boolean(message.attachments?.length)) && !message.error)
-      .map((message) => ({ role: message.role, content: message.content }));
+      .map((message) => { const isCurrentUser = message.role === "user" && message.id === active?.messages.filter((item) => item.role === "user").at(-1)?.id; const attachmentsText = message.attachments?.map((attachment) => `Ek dosya: ${attachment.name}`).join("\n") || ""; const priorImages = active?.messages.filter((item) => item.role === "user").flatMap((item) => item.attachments || []).filter((attachment) => attachment.kind === "image" && attachment.dataUrl).slice(-3) || []; const imageContext = isCurrentUser && !message.attachments?.length && priorImages.length ? priorImages : message.attachments || []; const content = isCurrentUser && imageContext.length ? [{ type: "text" as const, text: `${message.content || "Ekli görseli incele."}\n${attachmentsText}` }, ...imageContext.filter((attachment) => attachment.kind === "image" && attachment.dataUrl).map((attachment) => ({ type: "image_url" as const, image_url: { url: attachment.dataUrl! } }))] : message.content || attachmentsText; return { role: message.role, content }; });
     const currentUser = history[history.length - 1];
     if (currentUser && attachments.length > 0) {
       currentUser.content = [
-        {
-          type: "text",
-          text: typeof currentUser.content === "string" && currentUser.content.trim()
-            ? currentUser.content
-            : "Ekli dosya ve görselleri incele.",
-        },
+        { type: "text", text: typeof currentUser.content === "string" && currentUser.content.trim() ? currentUser.content : "Ekli dosya ve görselleri incele." },
         ...attachments.filter((attachment) => attachment.kind === "image").map((attachment) => ({
           type: "image_url" as const,
           image_url: { url: attachment.dataUrl },

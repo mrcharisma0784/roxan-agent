@@ -117,7 +117,7 @@ export function SettingsForm() {
 
       <SettingsSection
         title="Model bağlantısı"
-        description="Cloudflare Workers AI bilgilerin bu cihazda saklanır. Token için Account → Workers AI → Read izni gerekir."
+        description="Cloudflare Workers AI bilgilerin bu cihazda saklanır."
         icon={<Sparkles className="size-4 text-muted" strokeWidth={1.7} />}
       >
         <Field id="account-id" label="Account ID">
@@ -153,7 +153,7 @@ export function SettingsForm() {
         <Field id="vision-model" label="Vision"><Input id="vision-model" value={draft.modelProfiles.visionModel} onChange={(event) => setDraft((current) => ({ ...current, modelProfiles: { ...current.modelProfiles, visionModel: event.target.value } }))} placeholder="@cf/qwen/qwen3.8-27b" disabled={!hydrated} /></Field>
       </SettingsSection>
 
-      <SettingsSection
+      <div id="memory"><SettingsSection
         title="Yetenek bağlantıları"
         description="Web araması ve hafıza özelliklerini etkinleştir."
         icon={<Plug className="size-4 text-muted" strokeWidth={1.7} />}
@@ -197,7 +197,7 @@ export function SettingsForm() {
           <span className={cn("size-1.5 rounded-full bg-subtle", memoryReady && "bg-fg")} />
           {memoryReady ? "Memory bağlı" : "Memory henüz bağlı değil"}
         </div>
-      </SettingsSection>
+      </SettingsSection></div>
 
       <SettingsSection
         title="Personalization"

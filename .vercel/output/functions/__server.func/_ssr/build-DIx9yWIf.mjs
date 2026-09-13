@@ -1,0 +1,290 @@
+import { i as __toESM } from "../_runtime.mjs";
+import { u as require_react } from "../_libs/@floating-ui/react-dom+[...].mjs";
+import { L as FileText, Z as ChevronRight, nt as ArrowUp } from "../_libs/lucide-react.mjs";
+import { t as require_jsx_dev_runtime } from "../_libs/react.mjs";
+import { c as cn, s as Button } from "./router-DOtJEhh5.mjs";
+import { t as ChatView } from "./chat-view-Drv6_oFp.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/build-DIx9yWIf.js
+var import_react = /* @__PURE__ */ __toESM(require_react());
+var import_jsx_dev_runtime = require_jsx_dev_runtime();
+var _jsxFileName$1 = "/home/ubuntu/roxan-agent-v2/src/components/build/build-view.tsx";
+var PROJECT_TYPES = [];
+var AGENT_MD = `# Roxan Build Workspace
+
+## Rol
+Sen full-stack proje geliştiren bir agentsın. Kullanıcı isteğini analiz eder, eksik ve kritik bilgileri ask toolu ile sorar, ardından çalışan ve doğrulanabilir bir proje üretirsin.
+
+## Çalışma alanı
+Bu klasör proje köküdür. Oluşturulan tüm dosyalar bu workspace içinde tutulmalıdır. Workspace dışına çıkma ve kullanıcı açıkça istemedikçe mevcut dosyaları silme.
+
+## Kesin işlem sırası
+1. Önce Workspace Instructions Read toolu ile bu AGENT.md dosyasını oku.
+2. Kullanıcı selamlaşıyorsa hiçbir tool çağırmadan kısa yanıt ver.
+3. Gerçek istekse ayrı bir Reasoning fazında isteği ve varsayımları değerlendir. Bu faz tamamlanmadan planlama yapma.
+4. Ayrı bir Planning fazında adımları sırala. Reasoning ve Planning aynı anda çalışmaz.
+5. Planı tek tek uygula; klasör/dosya gerekiyorsa gerçek Directory Creating, File Creating veya File Editing toolunu çağır.
+6. Her adımdan sonra sonucu doğrula ve sonraki adıma geç.
+7. Kullanıcı kararı gerekiyorsa Ask toolu çağır; mümkünse tam üç hazır seçenek üret ve yanıtı bekle.
+8. Uygun test, typecheck, lint veya build komutlarını çalıştır.
+9. Sonucu ve doğrulama durumunu açıkça bildir.
+
+## Full-stack kapsamı
+Frontend, backend/API, veri modeli, doğrulama, hata yönetimi ve çalıştırma talimatlarını birlikte ele al. Uygulama güvenli, responsive ve erişilebilir olmalıdır.
+
+## Tool kullanımı
+Dosya okumadan düzenleme yapma. Büyük dizinleri sınırsız yazdırma; explore kullan veya find/rg çıktısını sınırla. Komut çıktısını özetle. Dosya yollarında güvenli relative yollar kullan.
+
+## Kalite
+Her değişiklikten sonra ilgili dosyanın varlığını ve içeriğini kontrol et. Kullanıcıya yapılmayan bir işlemi yapılmış gibi söyleme.
+`;
+function BuildView() {
+	const [prompt, setPrompt] = (0, import_react.useState)("");
+	const [selected, setSelected] = (0, import_react.useState)(null);
+	const [showAgent, setShowAgent] = (0, import_react.useState)(false);
+	const [startedPrompt, setStartedPrompt] = (0, import_react.useState)(null);
+	function onSubmit(event) {
+		event.preventDefault();
+		const idea = prompt.trim();
+		const content = `${selected ? `${selected}: ` : ""}${idea}`.trim();
+		if (!content) return;
+		if (typeof window !== "undefined") window.localStorage.setItem("roxan-build-workspace", content.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 64) || "project");
+		setPrompt("");
+		setStartedPrompt(content);
+	}
+	if (startedPrompt) return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ChatView, {
+		buildMode: true,
+		initialPrompt: startedPrompt
+	}, void 0, false, {
+		fileName: _jsxFileName$1,
+		lineNumber: 52,
+		columnNumber: 29
+	}, this);
+	return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", {
+		className: "flex min-h-0 flex-1 flex-col",
+		children: [/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", {
+			className: "min-h-0 flex-1 overflow-y-auto",
+			children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", {
+				className: "build-hero mx-auto w-full max-w-2xl px-5 pb-8",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("p", {
+						className: "mb-2.5 text-xs font-bold tracking-widest text-muted uppercase",
+						children: "Build modu · Workspace"
+					}, void 0, false, {
+						fileName: _jsxFileName$1,
+						lineNumber: 53,
+						columnNumber: 167
+					}, this),
+					/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("h1", {
+						className: "font-display text-5xl leading-none tracking-tight text-fg italic sm:text-6xl",
+						children: "Bir şeyler oluşturalım."
+					}, void 0, false, {
+						fileName: _jsxFileName$1,
+						lineNumber: 53,
+						columnNumber: 270
+					}, this),
+					/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("p", {
+						className: "mt-3.5 mb-6 max-w-sm text-sm leading-relaxed text-muted",
+						children: "Roxan fikrini full-stack bir projeye dönüştürmeye hazır. Başladığında bu alan kapanır ve doğrudan Build sohbetine geçilir."
+					}, void 0, false, {
+						fileName: _jsxFileName$1,
+						lineNumber: 53,
+						columnNumber: 391
+					}, this),
+					/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("button", {
+						type: "button",
+						onClick: () => setShowAgent((value) => !value),
+						className: "mb-6 flex w-full items-center gap-3 rounded-xl bg-bg-elevated p-3 text-left shadow-border hover:bg-bg-subtle",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("span", {
+								className: "grid size-9 place-items-center rounded-lg bg-bg-subtle",
+								children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(FileText, { className: "size-4" }, void 0, false, {
+									fileName: _jsxFileName$1,
+									lineNumber: 53,
+									columnNumber: 852
+								}, this)
+							}, void 0, false, {
+								fileName: _jsxFileName$1,
+								lineNumber: 53,
+								columnNumber: 779
+							}, this),
+							/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("span", {
+								className: "flex-1",
+								children: [/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("strong", {
+									className: "block text-sm",
+									children: "AGENT.md"
+								}, void 0, false, {
+									fileName: _jsxFileName$1,
+									lineNumber: 53,
+									columnNumber: 915
+								}, this), /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("small", {
+									className: "text-xs text-muted",
+									children: "Workspace yönlendirmeleri · varsayılan"
+								}, void 0, false, {
+									fileName: _jsxFileName$1,
+									lineNumber: 53,
+									columnNumber: 966
+								}, this)]
+							}, void 0, true, {
+								fileName: _jsxFileName$1,
+								lineNumber: 53,
+								columnNumber: 890
+							}, this),
+							/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ChevronRight, { className: cn("size-4 text-subtle transition-transform", showAgent && "rotate-90") }, void 0, false, {
+								fileName: _jsxFileName$1,
+								lineNumber: 53,
+								columnNumber: 1057
+							}, this)
+						]
+					}, void 0, true, {
+						fileName: _jsxFileName$1,
+						lineNumber: 53,
+						columnNumber: 588
+					}, this),
+					showAgent ? /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("pre", {
+						className: "mb-6 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-bg-elevated p-4 text-xs leading-relaxed text-muted shadow-border",
+						children: AGENT_MD
+					}, void 0, false, {
+						fileName: _jsxFileName$1,
+						lineNumber: 53,
+						columnNumber: 1179
+					}, this) : null,
+					/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", {
+						className: "grid gap-2.5",
+						children: PROJECT_TYPES.map((project) => {
+							const Icon = project.icon;
+							return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("button", {
+								type: "button",
+								className: cn("flex w-full items-center gap-3 rounded-xl bg-bg-elevated p-3.5 text-left text-fg shadow-border hover:bg-bg-subtle hover:shadow-border-hover", selected === project.title && "bg-bg-subtle shadow-border-hover"),
+								onClick: () => setSelected(project.title),
+								children: [
+									/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("span", {
+										className: "grid size-10 shrink-0 place-items-center rounded-lg bg-bg-subtle",
+										children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(Icon, { className: "size-5" }, void 0, false, {
+											fileName: _jsxFileName$1,
+											lineNumber: 53,
+											columnNumber: 1837
+										}, this)
+									}, void 0, false, {
+										fileName: _jsxFileName$1,
+										lineNumber: 53,
+										columnNumber: 1754
+									}, this),
+									/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("span", {
+										className: "flex min-w-0 flex-1 flex-col gap-1",
+										children: [/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("strong", {
+											className: "text-sm font-semibold",
+											children: project.title
+										}, void 0, false, {
+											fileName: _jsxFileName$1,
+											lineNumber: 53,
+											columnNumber: 1924
+										}, this), /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("small", {
+											className: "text-xs text-muted",
+											children: project.text
+										}, void 0, false, {
+											fileName: _jsxFileName$1,
+											lineNumber: 53,
+											columnNumber: 1990
+										}, this)]
+									}, void 0, true, {
+										fileName: _jsxFileName$1,
+										lineNumber: 53,
+										columnNumber: 1871
+									}, this),
+									/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ChevronRight, { className: "size-4 shrink-0 text-subtle" }, void 0, false, {
+										fileName: _jsxFileName$1,
+										lineNumber: 53,
+										columnNumber: 2057
+									}, this)
+								]
+							}, project.title, true, {
+								fileName: _jsxFileName$1,
+								lineNumber: 53,
+								columnNumber: 1445
+							}, this);
+						})
+					}, void 0, false, {
+						fileName: _jsxFileName$1,
+						lineNumber: 53,
+						columnNumber: 1347
+					}, this)
+				]
+			}, void 0, true, {
+				fileName: _jsxFileName$1,
+				lineNumber: 53,
+				columnNumber: 104
+			}, this)
+		}, void 0, false, {
+			fileName: _jsxFileName$1,
+			lineNumber: 53,
+			columnNumber: 56
+		}, this), /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", {
+			className: "build-composer-bar mx-auto mb-6 flex w-full max-w-2xl flex-col gap-2 px-4 sm:px-0",
+			children: [selected ? /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", {
+				className: "flex items-center gap-2 px-1 text-xs text-muted",
+				children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("span", {
+					className: "rounded-full bg-bg-subtle px-2.5 py-1.5 text-fg",
+					children: selected
+				}, void 0, false, {
+					fileName: _jsxFileName$1,
+					lineNumber: 53,
+					columnNumber: 2321
+				}, this)
+			}, void 0, false, {
+				fileName: _jsxFileName$1,
+				lineNumber: 53,
+				columnNumber: 2256
+			}, this) : null, /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("form", {
+				className: "flex items-center gap-2 rounded-2xl bg-bg-elevated p-2 pl-4 shadow-border-hover",
+				onSubmit,
+				children: [/* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("input", {
+					value: prompt,
+					onChange: (event) => setPrompt(event.target.value),
+					placeholder: "Ne oluşturmak istiyorsun?",
+					"aria-label": "Proje fikri",
+					className: "min-w-0 flex-1 border-0 bg-transparent text-sm text-fg outline-none placeholder:text-subtle"
+				}, void 0, false, {
+					fileName: _jsxFileName$1,
+					lineNumber: 53,
+					columnNumber: 2536
+				}, this), /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(Button, {
+					type: "submit",
+					size: "iconSm",
+					className: "size-9 rounded-full",
+					"aria-label": "Projeyi başlat",
+					children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ArrowUp, { className: "size-4" }, void 0, false, {
+						fileName: _jsxFileName$1,
+						lineNumber: 53,
+						columnNumber: 2877
+					}, this)
+				}, void 0, false, {
+					fileName: _jsxFileName$1,
+					lineNumber: 53,
+					columnNumber: 2781
+				}, this)]
+			}, void 0, true, {
+				fileName: _jsxFileName$1,
+				lineNumber: 53,
+				columnNumber: 2418
+			}, this)]
+		}, void 0, true, {
+			fileName: _jsxFileName$1,
+			lineNumber: 53,
+			columnNumber: 2145
+		}, this)]
+	}, void 0, true, {
+		fileName: _jsxFileName$1,
+		lineNumber: 53,
+		columnNumber: 10
+	}, this);
+}
+var _jsxFileName = "/home/ubuntu/roxan-agent-v2/src/routes/build.tsx?tsr-split=component";
+function BuildPage() {
+	return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(BuildView, {}, void 0, false, {
+		fileName: _jsxFileName,
+		lineNumber: 3,
+		columnNumber: 10
+	}, this);
+}
+//#endregion
+export { BuildPage as component };

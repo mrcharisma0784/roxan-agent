@@ -27,9 +27,9 @@ type CfMessage = { role: string; content: string; tool_calls?: CfToolCall[]; too
 
 const BASE_SYSTEM_PROMPT = `Sen Roxan'sın; kullanıcının diliyle net, doğru ve eyleme dönük yanıt ver.
 Karar sırası: (1) Kullanıcının amacını ve elindeki girdileri belirle, (2) eksik zorunlu girdileri sor, (3) yalnızca gerçekten gerekliyse tek uygun tool'u seç, (4) tool sonucunu kontrol et, (5) sonucu kısa ve anlaşılır aktar.
-Görsel analizi ayrı vision katmanında yapılır ve analiz metni sana bağlam olarak gelir; görsel hakkında göremiyorum deme.
-Kullanıcı görsel veya dosya göndermeden bir dosya/görseli incelemeni isterse dosyayı iste. Kullanıcı görsel veya dosya gönderdiyse onu tekrar isteme; görsel analiz bağlamını doğrudan kullan. Normal sohbette kullanıcı yalnızca bir dosya adı/yolu verirse dosya sisteminden okumaya çalışma; yalnızca Build workspace modunda ve yol açıkça verildiğinde file_read kullan.
-Dosya eki varsa ekin içeriğini doğrudan kullan; aynı dosyayı tekrar isteme. Tool hatası alırsan hatayı tekrarlamak yerine nedenini açıkla ve kullanıcıdan gereken eksik girdiyi iste. Ask tool kullanırken soru alanına yalnızca soru cümlesini yaz; seçenekleri soru içine (1) ... (2) ... olarak ekleme, seçenekleri yalnızca options alanına ayrı ayrı yaz.
+Görsel analizi ayrı vision katmanında yapılır ve analiz metni sana bağlam olarak gelir; görsel hakkında göremiyorum deme. Kullanıcı görsel gönderdiğinde onu tekrar isteme.
+Kullanıcı görsel veya dosya göndermeden bir dosya/görseli incelemeni isterse dosyayı iste. Normal sohbette kullanıcı yalnızca bir dosya adı/yolu verirse dosya sisteminden okumaya çalışma; yalnızca Build workspace modunda ve yol açıkça verildiğinde file_read kullan.
+Dosya eki varsa ekin içeriğini doğrudan kullan; aynı dosyayı tekrar isteme. Kullanıcı proje çıktısı, kaynak kodu veya ZIP istediğinde output klasörü içinde project_archive toolunu çağır; oluşan downloadUrl çıktısını kullanıcıya kart olarak sun. Ask tool kullanırken question alanına yalnızca soru cümlesini yaz; seçenekleri question içine (1) ... (2) ... olarak ekleme, seçenekleri yalnızca options alanında gönder. Tool hatası alırsan hatayı tekrarlamak yerine nedenini açıkla ve kullanıcıdan gereken eksik girdiyi iste.
 Selamlaşma ve kısa sohbetlerde tool kullanma. Yazma, silme, taşıma ve komut çalıştırma tool'larını ancak kullanıcı açıkça istediğinde kullan. Web search yalnızca etkinse ve güncel/harici doğrulama gerekiyorsa kullan. Memory tool'larını yalnızca açık hafıza talebinde kullan. Build modunda selamlaşma ve kısa sohbetlerde hiçbir tool kullanma. Gerçek bir proje isteğinde sıralı fazları uygula: AGENT.md okunduktan sonra ayrı bir reasoning çağrısı, ardından ayrı bir planning çağrısı, ardından plan adımlarını tek tek uygula. Dosya veya klasör isteniyorsa mutlaka gerçek file_create, dir_create, file_edit veya command_exec çağrısı yap ve sonucu doğrula; kodu yalnızca cevapta göstermeyi tamamlanmış sayma. Kullanıcı tercihi veya eksik zorunlu bilgi varsa ask toolunu çağır; seçenekleri mümkünse tam üç hazır cevap olarak üret. Fazları aynı turda birleştirme.`;
 const REASONING_MODEL_PATTERNS = [/deepseek-r1/i, /qwq/i, /qwen.*(think|reason)/i, /gpt-oss/i, /phi-4-reason/i];
 const WRITE_TOOLS = new Set(["file_create", "file_edit", "file_delete", "file_move", "dir_create", "dir_delete", "dir_move", "command_exec", "memory_add", "memory_edit", "memory_remove"]);
@@ -79,47 +79,25 @@ function extractDelta(parsed: unknown): string { if (!parsed || typeof parsed !=
   if (typeof record.output_text === "string") return record.output_text;
   if (typeof record.answer === "string") return record.answer; if (typeof record.caption === "string") return record.caption; const result = record.result; if (typeof result === "string") return result; if (result && typeof result === "object") { const resultRecord = result as Record<string, unknown>; if (typeof resultRecord.response === "string") return resultRecord.response; if (typeof resultRecord.answer === "string") return resultRecord.answer; if (typeof resultRecord.caption === "string") return resultRecord.caption; } return ""; }
 function extractError(parsed: unknown, fallback: string) { if (!parsed || typeof parsed !== "object") return fallback; const record = parsed as Record<string, unknown>; if (typeof record.message === "string" && record.message) return record.message; const errors = record.errors; if (Array.isArray(errors) && errors[0] && typeof errors[0] === "object" && typeof (errors[0] as Record<string, unknown>).message === "string") return String((errors[0] as Record<string, unknown>).message); return fallback; }
-function describeHttpError(status: number, json: unknown) {
-  const record = json && typeof json === "object" ? json as Record<string, unknown> : null;
-  const errors = Array.isArray(record?.errors) ? record.errors : [];
-  const errorCode = errors[0] && typeof errors[0] === "object" ? Number((errors[0] as Record<string, unknown>).code) : NaN;
-  if (errorCode === 10000 || /authentication error/i.test(extractError(json, ""))) {
-    return "Cloudflare Authentication error (10000). API Token’da Account → Workers AI → Read izni olmalı; Global API Key değil API Token kullan, Account ID’yi de aynı Cloudflare hesabından kopyala.";
-  }
-  const extracted = extractError(json, "");
-  return extracted || ({ 401: "API token geçersiz veya yetkisiz (401).", 403: "Hesabın bu modele erişim izni yok (403). Cloudflare AI model lisansını etkinleştirmen gerekebilir.", 404: "Account ID veya model bulunamadı (404).", 429: "Kota aşıldı (429)." }[status] || `İstek başarısız (${status}).`);
-}
+function describeHttpError(status: number, json: unknown) { const extracted = extractError(json, ""); return extracted || ({ 401: "API token geçersiz veya yetkisiz (401).", 403: "Hesabın bu modele erişim izni yok (403). Cloudflare AI model lisansını etkinleştirmen gerekebilir.", 404: "Account ID veya model bulunamadı (404).", 429: "Kota aşıldı (429)." }[status] || `İstek başarısız (${status}).`); }
 async function readJsonSafe(response: Response) { try { return await response.json(); } catch { return null; } }
 function messageText(content: ChatPayload["messages"][number]["content"]) { return typeof content === "string" ? content : content.filter((part) => part.type === "text").map((part) => part.text || "").join(" "); }
 function latestUserMessage(messages: ChatPayload["messages"]) { const message = [...messages].reverse().find((item) => item.role === "user"); return message ? messageText(message.content) : ""; }
 function isCasualMessage(content: string) { return /^(selam|merhaba|sa|hey|hello|hi|günaydın|iyi akşamlar|iyi geceler)[!.?,\s]*$/i.test(content.trim()); }
-function hasExplicitActionRequest(content: string) { return /(dosya|klasör|dizin|workspace|file|folder|directory|komut|command|terminal|script|oluştur|yaz|kaydet|oku|listele|sil|düzenle|değiştir|çalıştır|hafıza|hatırla|unut|memory|remember|forget|ara|search|ask|sor|seçenek|tercih)/i.test(content); }
+function hasExplicitActionRequest(content: string) { return /(dosya|klasör|dizin|workspace|file|folder|directory|komut|command|terminal|script|oluştur|yaz|kaydet|oku|listele|sil|düzenle|değiştir|çalıştır|hafıza|hatırla|unut|memory|remember|forget|ara|search|ask|sor|seçenek|tercih|zip|arşiv|archive|indir|download|proje)/i.test(content); }
 function availableTools(messages: ChatPayload["messages"], webSearchEnabled: boolean, workspaceMode: boolean) { const latest = latestUserMessage(messages); if (!latest || isCasualMessage(latest)) return []; const explicitAction = hasExplicitActionRequest(latest); if (!explicitAction && !webSearchEnabled && !workspaceMode) return []; const actionContext = explicitAction || workspaceMode; return TOOL_SCHEMAS.filter((tool) => { const name = tool.function?.name || ""; if (name === "web_search") return webSearchEnabled; if (FILE_TOOLS.has(name) && !workspaceMode) return false; if (!actionContext) return false; return true; }); }
-function normalizeAsk(question: string, rawOptions: string) {
-  let cleanQuestion = question.trim();
-  const extracted: string[] = [];
-  const optionPattern = /[\s,;]*(?:\(([1-9])\)|([1-9])[.)])\s+([^,;]+?)(?=\s*(?:,|;|\([1-9]\)|[1-9][.)]\s)|$)/g;
-  let match: RegExpExecArray | null;
-  while ((match = optionPattern.exec(cleanQuestion))) extracted.push(match[3].trim());
-  if (extracted.length >= 2) cleanQuestion = cleanQuestion.slice(0, cleanQuestion.search(/\s*(?:\([1-9]\)|[1-9][.)])\s*/)).trim().replace(/[,:;\-]+$/, "?");
-  const supplied = rawOptions.split(/\s*\|\|\s*|\s*[,;]\s*/).map((item) => item.trim()).filter(Boolean);
-  const options = [...extracted, ...supplied].filter((item, index, all) => item && all.indexOf(item) === index).slice(0, 3);
-  return { question: cleanQuestion || "Hangi seçeneği tercih edersin?", options };
-}
+function normalizeAsk(question: string, rawOptions: string) { let cleanQuestion = question.trim(); const extracted: string[] = []; const optionPattern = /[\s,;]*(?:\(([1-9])\)|([1-9])[.)])\s+([^,;]+?)(?=\s*(?:,|;|\([1-9]\)|[1-9][.)]\s)|$)/g; let match: RegExpExecArray | null; while ((match = optionPattern.exec(cleanQuestion))) extracted.push(match[3].trim()); if (extracted.length >= 2) cleanQuestion = cleanQuestion.slice(0, cleanQuestion.search(/\s*(?:\([1-9]\)|[1-9][.)])\s*/)).trim().replace(/[,:;-]+$/, "?"); const supplied = rawOptions.split(/\s*\|\|\s*|\s*[,;]\s*/).map((item) => item.trim()).filter(Boolean); const options = [...extracted, ...supplied].filter((item, index, all) => item && all.indexOf(item) === index).slice(0, 3); return { question: cleanQuestion || "Hangi seçeneği tercih edersin?", options }; }
 function decodeAttachedText(text: string) { return text.replace(/data:([^;,]+);base64,([A-Za-z0-9+/=]+)/g, (_, mime: string, encoded: string) => { if (!/^text\//i.test(mime) && !/json|javascript|xml|csv|yaml|markdown/i.test(mime)) return `[${mime} dosya eki alındı; binary içerik doğrudan metin olarak çözülemedi]`; try { return `\n[Dosya içeriği]\n${Buffer.from(encoded, "base64").toString("utf8").slice(0, 16000)}\n[/Dosya içeriği]`; } catch { return "[Dosya içeriği okunamadı]"; } }); }
 
 async function callChat(payload: ChatPayload, messages: CfMessage[], tools: typeof TOOL_SCHEMAS) {
   const source = messages.map((message) => ({ ...message, content: decodeAttachedText(message.content) }));
-  const body: Record<string, unknown> = { model: payload.settings.model, stream: tools.length === 0, max_tokens: 8192, ...(tools.length > 0 && payload.workspaceMode ? { tool_choice: "auto" } : {}), messages: [{ role: "system", content: buildSystemPrompt(payload.settings.personalization) }, ...source].slice(-25) };
+  const body: Record<string, unknown> = { model: payload.settings.model, stream: false, max_tokens: 8192, ...(tools.length > 0 && payload.workspaceMode ? { tool_choice: "auto" } : {}), messages: [{ role: "system", content: buildSystemPrompt(payload.settings.personalization) }, ...source].slice(-25) };
   if (tools.length > 0) body.tools = tools;
   if (payload.reasoningEnabled) body.reasoning_effort = "medium";
   const request = (accountId: string, apiToken: string, requestBody = body) => fetch(chatUrl(accountId), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` }, body: JSON.stringify(requestBody) });
   const transient = (response: Response) => response.status >= 500 || response.status === 408 || response.status === 429;
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   let primary = await request(payload.settings.accountId, payload.settings.apiToken);
-  if (!primary.ok && tools.length === 0 && (primary.status === 400 || primary.status === 422)) {
-    primary = await request(payload.settings.accountId, payload.settings.apiToken, { ...body, stream: false });
-  }
   if (!primary.ok && transient(primary)) { await wait(350); primary = await request(payload.settings.accountId, payload.settings.apiToken); }
   if (!primary.ok && primary.status >= 500 && tools.length > 0) { const safeBody = { ...body }; delete safeBody.tool_choice; primary = await request(payload.settings.accountId, payload.settings.apiToken, safeBody); }
   if (primary.ok || !payload.settings.backupAccountId || !payload.settings.backupApiToken) return primary;
@@ -167,32 +145,6 @@ ${instructions.content}` }, ...conversation]; }
     for (let turn = 0; turn < 12; turn++) {
       const tools = payload.workspaceMode && !isCasualMessage(latestUserMessage(payload.messages)) ? (turn === 0 ? phaseTool("reasoning") : turn === 1 ? phaseTool("planning") : allTools) : allTools;
       const upstream = await callChat(payload, conversation, tools);
-      const contentType = upstream.headers.get("content-type") || "";
-      if (upstream.ok && contentType.includes("text/event-stream") && !tools.length && upstream.body) {
-        const reader = upstream.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let streamed = false;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            const data = line.trim().replace(/^data:\s*/, "");
-            if (!data || data === "[DONE]") continue;
-            try {
-              const delta = extractDelta(JSON.parse(data));
-              if (delta) { streamed = true; send({ type: "delta", text: delta }); }
-            } catch { /* ignore keep-alive/non-JSON SSE frames */ }
-          }
-        }
-        if (streamed) send({ type: "done" });
-        else send({ type: "error", message: "Model streaming yanıtı boş döndürdü." });
-        controller.close();
-        return;
-      }
       const json = await readJsonSafe(upstream);
       if (!upstream.ok) { send({ type: "error", message: describeHttpError(upstream.status, json) }); controller.close(); return; }
       const msg = json && typeof json === "object" ? (json as { choices?: { message?: Record<string, unknown> }[] }).choices?.[0]?.message : undefined;
@@ -211,5 +163,5 @@ ${instructions.content}` }, ...conversation]; }
   return new Response(stream, { headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
-export async function handlePersonalization(request: Request): Promise<Response> { const body = await request.json().catch(() => null) as { apiKey?: string; personalization?: Personalization } | null; const apiKey = body?.apiKey?.trim(); const personalization = body?.personalization || { nickname: "", preferences: "", speakingStyle: "" }; const values = Object.entries(personalization).filter(([, value]) => typeof value === "string" && value.trim()); if (!apiKey) return Response.json({ message: "Mem0 API Key gerekli." }, { status: 400 }); if (values.length === 0) return Response.json({ ok: true, skipped: true }); const result = await runTool("memory_add", { content: `Kullanıcı kişiselleştirme tercihleri:\n${values.map(([label, value]) => `${label}: ${String(value).trim()}`).join("\n")}` }, { mem0ApiKey: apiKey }); return result.ok ? Response.json({ ok: true }) : Response.json({ message: result.error || "Mem0 kaydı başarısız." }, { status: 502 }); }
+export async function handlePersonalization(request: Request): Promise<Response> { const body = await request.json().catch(() => null) as { apiKey?: string; personalization?: Personalization } | null; const apiKey = body?.apiKey?.trim(); const personalization = body?.personalization || { nickname: "", preferences: "", speakingStyle: "" }; const values = Object.entries(personalization).filter(([, value]) => typeof value === "string" && value.trim()); if (!apiKey) return Response.json({ message: "Mem0 API Key gerekli." }, { status: 400 }); if (values.length === 0) return Response.json({ ok: true, skipped: true }); const results = await Promise.all(values.map(([label, value]) => runTool("memory_add", { content: `Roxan kişiselleştirme - ${label}: ${String(value).trim()}` }, { mem0ApiKey: apiKey }))); const failed = results.find((result) => !result.ok); return failed ? Response.json({ message: failed.error || "Mem0 kaydı başarısız." }, { status: 502 }) : Response.json({ ok: true, saved: results.length }); }
 export async function handleMemoryList(request: Request): Promise<Response> { const body = await request.json().catch(() => null) as { apiKey?: string } | null; if (!body?.apiKey?.trim()) return Response.json({ message: "Mem0 API Key gerekli." }, { status: 400 }); const result = await runTool("memory_recall", { query: "kullanıcı tercihleri ve kayıtlı hafıza", limit: 10 }, { mem0ApiKey: body.apiKey.trim() }); return result.ok ? Response.json({ memories: result.memories || result.data || [] }) : Response.json({ message: result.error || "Memory okunamadı." }, { status: 502 }); }

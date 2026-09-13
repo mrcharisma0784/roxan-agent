@@ -278,7 +278,9 @@ function tokenIdentityKey(token: string): string {
             .digest("base64url");
         }
       }
-    } catch {}
+    } catch {
+      // Token payload is optional; fall back to a stable hash below.
+    }
   }
   return createHash("sha256").update(token).digest("base64url");
 }

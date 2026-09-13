@@ -35,10 +35,7 @@ export const authClient = createAuthClient({
  * with the key removed, sign-in is real in preview (baked preview client) and
  * when deployed (injected per-app client).
  */
-// Auth is opt-in in deployments. The sandbox injects the flag explicitly when
-// real auth is provisioned; an absent VITE_AUTH_ENABLED must not accidentally
-// turn on the preview broker and produce Authentication error on Vercel.
-export const authEnabled = import.meta.env.VITE_AUTH_ENABLED === "true";
+export const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
 
 /** The upstream providers to render sign-in buttons for. */
 export { GROK_PROVIDERS };
