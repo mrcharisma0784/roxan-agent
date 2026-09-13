@@ -156,10 +156,7 @@ export default defineConfig(({ command, isPreview }) => ({
     port: 8081,
     strictPort: true,
   },
-  resolve: {
-    tsconfigPaths: true,
-    alias: { "react/jsx-dev-runtime": join(process.cwd(), "src/jsx-dev-runtime-shim.ts") },
-  },
+  resolve: { tsconfigPaths: true },
   plugins: [
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
@@ -181,9 +178,6 @@ export default defineConfig(({ command, isPreview }) => ({
           }),
         ]
       : []),
-    // TanStack Start's SSR bundle can inherit NODE_ENV=development from the
-    // Vercel build runner. Classic JSX keeps server output compatible with
-    // React's production runtime instead of emitting jsxDEV calls.
-    viteReact({ jsxRuntime: "classic" }),
+    viteReact(),
   ],
 }));
