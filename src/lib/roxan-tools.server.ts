@@ -2,6 +2,8 @@ import { exec } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { extractZipFile, sanitizeArchiveName, writeZipFromDirectory } from "@/lib/archive.server";
+import { BUILD_AGENT_MD, isLegacyGeneratedAgent } from "@/lib/build-agent-instructions";
 
 const execAsync = promisify(exec);
 
@@ -117,6 +119,15 @@ export const TOOL_SCHEMAS = [
     properties: { command: { type: "string" } },
     required: ["command"],
   }),
+  fn("zip_create", "Workspace içindeki dosya veya klasörü ZIP olarak paketle; zip/apt-get/python3 gibi sistem komutlarını kullanma.", {
+    type: "object",
+    properties: { source: { type: "string", description: "Workspace'e göreli kaynak yolu; varsayılan proje kökü" }, filename: { type: "string", description: "ZIP dosya adı" } },
+  }),
+  fn("zip_extract", "Workspace içindeki ZIP arşivini güvenli biçimde aç.", {
+    type: "object",
+    properties: { archive: { type: "string", description: "ZIP dosyasının workspace'e göreli yolu" }, destination: { type: "string", description: "Açılacak hedef klasör; varsayılan arşiv adı" } },
+    required: ["archive"],
+  }),
   fn("page_navigate", "Tarayıcı sayfasına git.", { type: "object", properties: { url: { type: "string" } }, required: ["url"] }),
   fn("element_click", "Tarayıcıdaki elementi tıkla.", { type: "object", properties: { selector: { type: "string" } }, required: ["selector"] }),
   fn("form_type", "Tarayıcı form alanına yaz.", { type: "object", properties: { selector: { type: "string" }, text: { type: "string" } }, required: ["selector", "text"] }),
@@ -131,7 +142,7 @@ export const TOOL_SCHEMAS = [
   fn("skills_unload", "Bir workspace yeteneğini devre dışı bırak.", { type: "object", properties: { name: { type: "string" } }, required: ["name"] }),
   fn("api_request", "Yapılandırılmış harici API isteği hazırlamak için kullan.", { type: "object", properties: { url: { type: "string" }, method: { type: "string" } }, required: ["url"] }),
   fn("deploy", "Deploy öncesi yapılandırmayı kontrol et; kullanıcı açıkça istemeden yayınlama.", { type: "object", properties: { target: { type: "string" } }, required: ["target"] }),
-  fn("project_archive", "Workspace projesini ZIP olarak paketle ve kullanıcıya indirilebilir çıktı ver.", { type: "object", properties: { filename: { type: "string" } } }),
+  fn("project_archive", "Workspace projesini ZIP olarak paketle ve kullanıcıya indirilebilir çıktı ver; sistem zip komutu kullanma.", { type: "object", properties: { filename: { type: "string" } } }),
   fn(
     "web_search",
     "Firecrawl ile web'de ara. Yalnızca güncel, harici veya kesin bilinmeyen bilgileri doğrulamak için kullan.",
@@ -190,7 +201,7 @@ async function getWorkdir(workspaceMode = false, workspaceId = "default") {
       const probe = path.join(dir, ".roxan-write-test");
       await fs.writeFile(probe, "ok");
       await fs.rm(probe, { force: true });
-      if (workspaceMode) { const agent = path.join(dir, "AGENT.md"); try { await fs.access(agent); } catch { await fs.writeFile(agent, "# AGENT.md\n\n## Rol\nFull-stack proje geliştir. Kullanıcı isteğini analiz et, eksik bilgileri ask ile sor ve çalışan sonucu doğrula.\n\n## Sıra\nÖnce bu dosyayı oku; sonra explore/dir_list ile workspace’i incele; ardından planla, uygula, test et ve özetle.\n\n## Workspace\nTüm dosyalar bu klasörde kalır. Güvenli relative yollar kullan; workspace dışına çıkma. Mevcut dosyaları kullanıcı istemeden silme.\n\n## Kalite\nDosya düzenlemeden önce oku. Büyük çıktıları sınırla. Uygun lint, typecheck, test veya build komutunu çalıştır. Yapılmayan işi yapılmış gibi bildirme.\n", "utf8"); } }
+      if (workspaceMode) { const agent = path.join(dir, "AGENT.md"); const existing = await fs.readFile(agent, "utf8").catch(() => ""); if (!existing || isLegacyGeneratedAgent(existing)) await fs.writeFile(agent, BUILD_AGENT_MD, "utf8"); }
       resolvedWorkdirs.set(cacheKey, dir);
       return dir;
     } catch {
@@ -371,13 +382,38 @@ export async function runTool(
         };
       }
     }
+    case "zip_create": {
+      const source = asString(args.source, ".");
+      const sourcePath = resolveSafe(workdir, source);
+      const stat = await fs.stat(sourcePath);
+      const filename = sanitizeArchiveName(asString(args.filename, path.basename(sourcePath) || "roxan-project"));
+      const outputDir = path.join(workdir, "output");
+      await fs.mkdir(outputDir, { recursive: true });
+      const outputPath = path.join(outputDir, filename);
+      if (stat.isDirectory()) await writeZipFromDirectory(sourcePath, outputPath);
+      else await fs.writeFile(outputPath, new Uint8Array(await fs.readFile(sourcePath)));
+      return { ok: true, message: `ZIP hazır: ${filename}`, data: { filename, outputPath: `output/${filename}` } };
+    }
+    case "zip_extract": {
+      const archive = asString(args.archive);
+      const archivePath = resolveSafe(workdir, archive);
+      const destination = resolveSafe(workdir, asString(args.destination, path.basename(archive).replace(/\.zip$/i, "") || "extracted"));
+      const count = await extractZipFile(archivePath, destination);
+      return { ok: true, message: `${count} dosya açıldı.`, data: { archive, destination: path.relative(workdir, destination), count } };
+    }
     case "ask": { return { ok: true, data: { question: asString(args.question, "Bu işlem için hangi bilgiyi tercih edersin?"), options: asString(args.options) }, message: "Kullanıcı yanıtı bekleniyor." }; }
     case "page_navigate": case "element_click": case "form_type": case "element_hover": case "page_scroll": case "dom_inspect": case "screenshot": { return { ok: false, error: "Tarayıcı connector bu Roxan dağıtımında yapılandırılmamış; browser connector etkinleştirildiğinde bu tool doğrudan kullanılabilir." }; }
     case "image_view": { const p = resolveSafe(workdir, asString(args.path)); try { const stat = await fs.stat(p); return { ok: stat.isFile(), message: stat.isFile() ? `Görsel hazır: ${asString(args.path)}` : "Görsel dosyası değil." }; } catch { return { ok: false, error: `Görsel bulunamadı: ${asString(args.path)}` }; } }
     case "planning": case "reasoning": case "skills_load": case "skills_unload": { return { ok: true, message: `${name} tamamlandı.`, data: args }; }
     case "api_request": { return { ok: false, error: "API isteği için güvenli connector yapılandırılmamış." }; }
     case "deploy": { return { ok: false, error: "Deploy connector yapılandırılmadan yayınlama yapılamaz." }; }
-    case "project_archive": { const base = asString(args.filename, "roxan-project").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/\.zip$/i, ""); const filename = `${base || "roxan-project"}.zip`; const outputDir = path.join(workdir, "output"); await fs.mkdir(outputDir, { recursive: true }); await execAsync(`zip -qr ${JSON.stringify(path.join(outputDir, filename))} . -x "node_modules/*" ".git/*" "output/*"`, { cwd: workdir, timeout: 30_000 }); return { ok: true, message: "Proje ZIP çıktısı hazır.", data: { filename, outputPath: `output/${filename}`, downloadUrl: `/api/project?download=1&workspaceId=${encodeURIComponent(credentials.workspaceId || "default")}&filename=${encodeURIComponent(filename)}` } }; }
+    case "project_archive": {
+      const filename = sanitizeArchiveName(asString(args.filename, "roxan-project"));
+      const outputDir = path.join(workdir, "output");
+      await fs.mkdir(outputDir, { recursive: true });
+      await writeZipFromDirectory(workdir, path.join(outputDir, filename));
+      return { ok: true, message: "Proje ZIP çıktısı hazır.", data: { filename, outputPath: `output/${filename}`, downloadUrl: `/api/project?download=1&workspaceId=${encodeURIComponent(credentials.workspaceId || "default")}&filename=${encodeURIComponent(filename)}` } };
+    }
     case "web_search": {
       if (!credentials.firecrawlApiKey) {
         return { ok: false, error: "Firecrawl API anahtarı yapılandırılmamış. Ayarlar'dan FireCrawl key ekle." };

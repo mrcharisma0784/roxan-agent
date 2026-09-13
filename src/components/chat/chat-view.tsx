@@ -16,7 +16,7 @@ import {
   useRoxan,
 } from "@/store/roxan";
 
-export function ChatView({ buildMode = false, initialPrompt }: { buildMode?: boolean; initialPrompt?: string } = {}) {
+export function ChatView({ buildMode = false, initialPrompt, initialAttachments = [] }: { buildMode?: boolean; initialPrompt?: string; initialAttachments?: ComposerAttachment[] } = {}) {
   const navigate = useNavigate();
   const hydrated = useRoxan((state) => state.hydrated);
   const settings = useRoxan((state) => state.settings);
@@ -38,6 +38,7 @@ export function ChatView({ buildMode = false, initialPrompt }: { buildMode?: boo
 
   const conversation = conversations.find((item) => item.id === activeId) ?? conversations[0];
   const messages = conversation?.messages ?? [];
+  const workspaceId = conversation?.workspaceId || (conversation?.mode === "build" ? conversation.title.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 64) || "project" : "default");
   const configured = isConfigured(settings);
   const firecrawlReady = hasFirecrawl(settings);
   const memoryReady = hasMemory(settings);
@@ -59,8 +60,8 @@ export function ChatView({ buildMode = false, initialPrompt }: { buildMode?: boo
   }, []);
 
   useEffect(() => {
-    if (buildMode && initialPrompt && !buildStartedRef.current) { buildStartedRef.current = true; useRoxan.getState().newConversation(); setTimeout(() => void send(initialPrompt, [], true), 0); }
-  }, [buildMode, initialPrompt]);
+    if (buildMode && initialPrompt && !buildStartedRef.current) { buildStartedRef.current = true; useRoxan.getState().newConversation(); setTimeout(() => void send(initialPrompt, initialAttachments, true), 0); }
+  }, [buildMode, initialPrompt, initialAttachments]);
 
   useEffect(() => {
     if (buildMode) return;
@@ -90,7 +91,9 @@ export function ChatView({ buildMode = false, initialPrompt }: { buildMode?: boo
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const { assistantId } = useRoxan.getState().startTurn(content, attachments.map(({ name, kind, type, dataUrl }) => ({ name, kind, type, dataUrl })), replyTo || undefined, workspaceMode ? "build" : "chat");
+    const resolvedWorkspaceId = workspaceMode ? (conversation?.workspaceId || (initialPrompt && typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || workspaceId : workspaceId)) : undefined;
+    if (workspaceMode && typeof window !== "undefined") window.localStorage.setItem("roxan-build-workspace", resolvedWorkspaceId || "project");
+    const { assistantId } = useRoxan.getState().startTurn(content, attachments.map(({ name, kind, type, dataUrl }) => ({ name, kind, type, dataUrl })), replyTo || undefined, workspaceMode ? "build" : "chat", resolvedWorkspaceId);
     const snapshot = useRoxan.getState();
     const active = snapshot.conversations.find((item) => item.id === snapshot.activeConversationId);
     const history: { role: "user" | "assistant" | "system"; content: string | { type: "text" | "image_url"; text?: string; image_url?: { url: string } }[] }[] = (active?.messages ?? [])
@@ -121,7 +124,7 @@ export function ChatView({ buildMode = false, initialPrompt }: { buildMode?: boo
             snapshot.reasoningEnabled && supportsReasoning(workspaceMode ? snapshot.settings.modelProfiles.agenticModel : chatModelMode === "flash" ? snapshot.settings.modelProfiles.flashModel : snapshot.settings.modelProfiles.defaultModel),
           workspaceMode,
           chatModelMode,
-          workspaceId: workspaceMode && typeof window !== "undefined" ? window.localStorage.getItem("roxan-build-workspace") || "default" : "default",
+          workspaceId: workspaceMode ? resolvedWorkspaceId || "default" : "default",
         },
         {
           onDelta: (delta) => useRoxan.getState().appendAssistant(assistantId, delta),
